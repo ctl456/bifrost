@@ -1,0 +1,435 @@
+{
+  "source": "commandcode-proxy/proxy.mjs (convertResponsesToChat + buildResponsesObject, extracted verbatim)",
+  "note": "the handler assembles the body inputs inline, which the generator mirrors; the body is the original's, with item ids rewritten to the positional form Bifrost mints",
+  "model": "deepseek/deepseek-v4-flash",
+  "id": "resp_fixture",
+  "created": 1700000000,
+  "completed": 1700000000,
+  "cases": [
+    {
+      "name": "a plain answer with its accounting",
+      "request": {
+        "model": "deepseek/deepseek-v4-flash",
+        "input": "hi"
+      },
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"Hello\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":10,\"outputTokens\":3,\"cachedInputTokens\":4}}"
+      ],
+      "response": {
+        "id": "resp_fixture",
+        "object": "response",
+        "created_at": 1700000000,
+        "status": "completed",
+        "completed_at": 1700000000,
+        "error": null,
+        "incomplete_details": null,
+        "input": [],
+        "instructions": null,
+        "max_output_tokens": null,
+        "model": "deepseek/deepseek-v4-flash",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_0",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Hello",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "output_text": "Hello",
+        "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "reasoning": null,
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          }
+        },
+        "tool_choice": "auto",
+        "tools": [],
+        "top_p": 1,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 10,
+          "input_tokens_details": {
+            "cached_tokens": 4,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 3,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 13
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "name": "reasoning is reported as its own item",
+      "request": {
+        "instructions": "be brief",
+        "input": "hi",
+        "reasoning": {
+          "effort": "high",
+          "summary": "auto"
+        }
+      },
+      "lines": [
+        "{\"type\":\"reasoning-delta\",\"text\":\"thinking\"}",
+        "{\"type\":\"text-delta\",\"text\":\"answer\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":5,\"outputTokens\":2}}"
+      ],
+      "response": {
+        "id": "resp_fixture",
+        "object": "response",
+        "created_at": 1700000000,
+        "status": "completed",
+        "completed_at": 1700000000,
+        "error": null,
+        "incomplete_details": null,
+        "input": [],
+        "instructions": "be brief",
+        "max_output_tokens": null,
+        "model": "deepseek/deepseek-v4-flash",
+        "output": [
+          {
+            "type": "reasoning",
+            "id": "rs_0",
+            "summary": [
+              {
+                "type": "summary_text",
+                "text": "thinking"
+              }
+            ]
+          },
+          {
+            "type": "message",
+            "id": "msg_1",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "answer",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "output_text": "answer",
+        "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "reasoning": {
+          "effort": "high",
+          "summary": "auto"
+        },
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          }
+        },
+        "tool_choice": "auto",
+        "tools": [],
+        "top_p": 1,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 5,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 2,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 7
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "name": "calls are reported as their own items with their arguments",
+      "request": {
+        "input": "hi",
+        "tools": [
+          {
+            "type": "function",
+            "name": "shell_output"
+          }
+        ]
+      },
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"looking\"}",
+        "{\"type\":\"tool-call\",\"toolCallId\":\"call_a\",\"toolName\":\"shell_output\",\"input\":{\"cmd\":\"ls\"}}",
+        "{\"type\":\"finish\",\"finishReason\":\"tool-calls\",\"totalUsage\":{\"inputTokens\":7,\"outputTokens\":9}}"
+      ],
+      "response": {
+        "id": "resp_fixture",
+        "object": "response",
+        "created_at": 1700000000,
+        "status": "completed",
+        "completed_at": 1700000000,
+        "error": null,
+        "incomplete_details": null,
+        "input": [],
+        "instructions": null,
+        "max_output_tokens": null,
+        "model": "deepseek/deepseek-v4-flash",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_0",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "looking",
+                "annotations": []
+              }
+            ]
+          },
+          {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_a",
+            "name": "shell_output",
+            "arguments": "{\"cmd\":\"ls\"}",
+            "status": "completed"
+          }
+        ],
+        "output_text": "looking",
+        "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "reasoning": null,
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          }
+        },
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "function",
+            "name": "shell_output"
+          }
+        ],
+        "top_p": 1,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 7,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 9,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 16
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "name": "a turn cut off by the token limit is incomplete",
+      "request": {
+        "input": "hi",
+        "max_output_tokens": 16
+      },
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"half an ans\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"length\",\"totalUsage\":{\"inputTokens\":3,\"outputTokens\":4}}"
+      ],
+      "response": {
+        "id": "resp_fixture",
+        "object": "response",
+        "created_at": 1700000000,
+        "status": "incomplete",
+        "completed_at": 1700000000,
+        "error": null,
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        },
+        "input": [],
+        "instructions": null,
+        "max_output_tokens": 16,
+        "model": "deepseek/deepseek-v4-flash",
+        "output": [
+          {
+            "type": "message",
+            "id": "msg_0",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "half an ans",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "output_text": "half an ans",
+        "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "reasoning": null,
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          }
+        },
+        "tool_choice": "auto",
+        "tools": [],
+        "top_p": 1,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 3,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 4,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 7
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "name": "a call the client answered keeps the name the call carried",
+      "request": {
+        "input": "hi"
+      },
+      "lines": [
+        "{\"type\":\"tool-call\",\"toolCallId\":\"call_z\",\"toolName\":\"read\",\"input\":\"{}\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"tool-calls\",\"totalUsage\":{\"inputTokens\":2,\"outputTokens\":3}}"
+      ],
+      "response": {
+        "id": "resp_fixture",
+        "object": "response",
+        "created_at": 1700000000,
+        "status": "completed",
+        "completed_at": 1700000000,
+        "error": null,
+        "incomplete_details": null,
+        "input": [],
+        "instructions": null,
+        "max_output_tokens": null,
+        "model": "deepseek/deepseek-v4-flash",
+        "output": [
+          {
+            "type": "function_call",
+            "id": "fc_0",
+            "call_id": "call_z",
+            "name": "read",
+            "arguments": "{}",
+            "status": "completed"
+          }
+        ],
+        "output_text": "",
+        "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "reasoning": null,
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          }
+        },
+        "tool_choice": "auto",
+        "tools": [],
+        "top_p": 1,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 2,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 3,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 5
+        },
+        "user": null,
+        "metadata": {}
+      }
+    },
+    {
+      "name": "a zero-output turn reports no input either",
+      "request": {
+        "input": "hi"
+      },
+      "lines": [
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":9,\"cachedInputTokens\":9,\"outputTokens\":0}}"
+      ],
+      "response": {
+        "id": "resp_fixture",
+        "object": "response",
+        "created_at": 1700000000,
+        "status": "completed",
+        "completed_at": 1700000000,
+        "error": null,
+        "incomplete_details": null,
+        "input": [],
+        "instructions": null,
+        "max_output_tokens": null,
+        "model": "deepseek/deepseek-v4-flash",
+        "output": [],
+        "output_text": "",
+        "parallel_tool_calls": true,
+        "previous_response_id": null,
+        "reasoning": null,
+        "store": false,
+        "temperature": 1,
+        "text": {
+          "format": {
+            "type": "text"
+          }
+        },
+        "tool_choice": "auto",
+        "tools": [],
+        "top_p": 1,
+        "truncation": "disabled",
+        "usage": {
+          "input_tokens": 0,
+          "input_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "output_tokens": 0,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 0
+        },
+        "user": null,
+        "metadata": {}
+      }
+    }
+  ]
+}

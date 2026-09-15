@@ -1,0 +1,16 @@
+[package]
+name = "bifrost-wire"
+description = "Upstream wire dialects: envelope, headers and version dispatch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bifrost-config.workspace = true
+bifrost-core.workspace = true
+bifrost-fingerprint.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+time.workspace = true

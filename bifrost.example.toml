@@ -1,0 +1,110 @@
+# Bifrost configuration template.
+#
+# Every key is optional: omitting one uses the documented default below.
+# Unknown keys are rejected rather than ignored.
+version = 1
+
+host = "0.0.0.0"
+port = 3050
+api_base = "https://api.commandcode.ai"
+
+[device]
+# The working directory this deployment reports upstream. The project slug is
+# derived from it, and so is the fingerprint's view of where the work happens, so
+# the three cannot disagree. Leave `project_dir` out to use the built-in profile;
+# the original reads the same setting from CC_DEVICE_PROJECT_DIR. No path is shown
+# here on purpose: the built-in one lives in bifrost-fingerprint, and a copy of it
+# in this file would be a second thing to keep in step.
+
+[wire]
+# Upstream wire dialect. Must look like "<name>/<major>.<minor>.<patch>";
+# an unknown version refuses to start instead of guessing.
+adapter = "cc/1.53.1"
+# Warn when the published client version moves ahead of the one this build
+# implements. A warning only: the version reported upstream is always the
+# implemented one, because claiming a version whose shape is not implemented is
+# a stronger signal than claiming an older one.
+drift_watch = true
+# Where the published version is read from, once at startup and once a day. A
+# mirror goes here; the check reads <registry>/<package>/latest.
+drift_registry = "https://registry.npmjs.org"
+# Ask the upstream to route only through zero-data-retention providers.
+zdr = false
+
+[limits]
+# Request body ceiling in MB. Oversized requests get 413 and the connection is
+# drained so it stays reusable.
+max_body_mb = 100
+# Upstream read-idle timeout while streaming.
+stream_idle_ms = 30000
+# Upstream read-idle timeout for non-streaming requests.
+nonstream_idle_ms = 90000
+# In-flight request ceiling for the process; 0 means unlimited.
+max_inflight = 0
+# How long a client may stop taking bytes off a stream before the upstream is cut
+# loose. The upstream is read by a task of its own, so it keeps producing whether or
+# not anyone downstream is consuming; past this the reader is aborted, which closes
+# the upstream connection and stops the tokens being generated for nobody. 0
+# disables the watchdog and lets the client hold the upstream open indefinitely.
+client_stall_ms = 0
+# How long the pre-flight that announces a key to the upstream may take before it
+# is abandoned. The first turn of each window waits for it, so that the upstream
+# knows the device before it is asked to generate; nothing about it can fail the
+# turn, and a pre-flight that overruns is abandoned rather than waited out.
+announce_ms = 10000
+
+[models]
+# What /v1/models answers with. The upstream publishes a catalogue per account, and
+# asking for it is the better answer when it can be had. A refresh that fails keeps
+# serving the last catalogue the upstream gave; the table compiled into this build
+# is only for a deployment that has never had one (first start with the catalogue
+# unreachable, or this switch off).
+provider = true
+# How long a fetched catalogue is reused. 0 fetches on every request.
+refresh_ms = 300000
+# How long a fetch may take before the previous catalogue is served instead.
+timeout_ms = 10000
+
+[mechanisms]
+# Report this deployment's derived device identity to the upstream. The identity
+# is a deterministic function of the key whether or not this is on; what this
+# switches is whether the upstream is ever asked to remember it.
+fingerprint = true
+# Announce each key to the upstream before it is used to generate: the device
+# record, plus the session event that says a CLI session exists, once per key per
+# eight hours plus up to two hours of jitter. Turning this off stops both calls,
+# and leaves every turn as a generate and nothing else.
+lifecycle = true
+# Per-key session id with expiry and jitter.
+session = true
+# Keep each turn's original bytes under [audit].archive_dir, with one JSONL line
+# per finished turn in [audit].journal_dir. Off by default because it writes to
+# disk. A failed write is logged, never raised, and a stream is kept up to 8 MB
+# and flagged truncated past that. The archive is pruned at startup and daily
+# according to [audit].retain_days and [audit].max_total_mb; retention applies only
+# to the archive never to the journal, and leaves everything alone while both are 0.
+evidence_archive = false
+# Turn a client's prompt_cache_key into a cache breakpoint on the last system
+# section, when the client did not mark one itself.
+prompt_cache = false
+# Count back-to-back idle timeouts and word the third one as advice to shorten
+# the conversation.
+timeout_context_hint = false
+
+[fingerprint]
+# Rotates the derived device identity in bulk. Empty means the built-in rule.
+salt = ""
+
+[audit]
+# Append-only JSONL decision log.
+journal_dir = "var/journal"
+# Content-addressed blob store.
+archive_dir = "var/archive"
+
+[telemetry]
+# error, warn, info or debug. A filter rather than a label: a message that does
+# not clear this level is not written at all.
+log_level = "info"
+# json is one object per line, for a collector; text is one line per event, for
+# a person reading a terminal.
+log_format = "json"

@@ -1,0 +1,75 @@
+# Bifrost as a systemd service.
+#
+# Install:
+#   install -m 0755 target/release/bifrost /usr/local/bin/bifrost
+#   useradd --system --home-dir /var/lib/bifrost --shell /usr/sbin/nologin bifrost
+#   install -d -o root -g bifrost -m 0750 /etc/bifrost
+#   install -o root -g bifrost -m 0640 bifrost.toml /etc/bifrost/bifrost.toml
+#   install -o root -g bifrost -m 0600 deploy/bifrost.env.example /etc/bifrost/bifrost.env
+#   install -m 0644 deploy/bifrost.service /etc/systemd/system/bifrost.service
+#   systemd-analyze verify /etc/systemd/system/bifrost.service
+#   systemctl daemon-reload && systemctl enable --now bifrost
+#
+# The configuration is named rather than discovered: the unit sets BIFROST_CONFIG
+# so that the file this service reads is the file someone edited, instead of
+# whatever `bifrost.toml` happens to be in the working directory at the time.
+#
+# The working directory is the state directory, so the relative `var/journal` and
+# `var/archive` paths of the default configuration land under /var/lib/bifrost,
+# which is the one place this service may write.
+
+[Unit]
+Description=Bifrost, the Command Code protocol gateway
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=bifrost
+Group=bifrost
+WorkingDirectory=/var/lib/bifrost
+Environment=BIFROST_CONFIG=/etc/bifrost/bifrost.toml
+# The dash keeps the unit usable before this file exists: every setting in it is
+# also a key in the configuration file.
+EnvironmentFile=-/etc/bifrost/bifrost.env
+
+# A configuration this build cannot use fails the unit, rather than failing the
+# first request that needs it. The check reads and validates; it binds nothing.
+ExecStartPre=/usr/local/bin/bifrost --check
+ExecStart=/usr/local/bin/bifrost
+
+Restart=on-failure
+RestartSec=2
+# The process catches SIGINT and SIGTERM, so the default is the right one: a
+# graceful stop waits for the requests in flight, which for a streamed turn can be
+# minutes. Past this, systemd cuts it.
+TimeoutStopSec=90
+
+# Everything below is hardening rather than configuration. The service needs one
+# outbound connection and one listening socket; it does not need a home, a
+# writable filesystem outside its state directory, or a capability — it listens on
+# 3050, which is above 1024.
+StateDirectory=bifrost
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+# AF_NETLINK is how the resolver learns the interfaces it resolves over; without it
+# a name lookup works only while it can be answered from a cache.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

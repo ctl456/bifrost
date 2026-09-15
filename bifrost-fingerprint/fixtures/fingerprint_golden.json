@@ -1,0 +1,414 @@
+{
+  "source": "commandcode-proxy/proxy.mjs (fingerprint region, extracted verbatim)",
+  "proxy_revision": "6b845b6",
+  "fp_salt": "command-code:device-fingerprint:v1",
+  "device_profile": {
+    "platform": "win32",
+    "arch": "x64",
+    "osRelease": "10.0.22631",
+    "isContainer": false,
+    "projectDir": "C:\\Users\\dev\\projects\\app"
+  },
+  "cases": [
+    {
+      "api_key": "user_abc123",
+      "salt": "",
+      "expected": {
+        "thumbmark": "d5b0d96379eca5b2a88895049917e0bb6ba0f13a22a84c5f905ed902b1464e5b",
+        "components": {
+          "machineIdHash": "b160ea3693a7fd038e7473b9d2c25862f79bff9703adf8c983fee888ec98bf82",
+          "macHashes": [
+            "df479bebe2a8bd48aed8ae1ca6833431d45b91def54dc246c965203715247570",
+            "97fbc1c3189c17e9787093bd706d536631f7c5c4c79eca90d77ff3bdc335fe9c",
+            "fd4a42048c14c7701480162bb41e3515deda42ce3c8820047c168472320b3353"
+          ],
+          "osUserHash": "06414579e1354d2814990a25ee0523d4cc1fab56fe9218004b1d8d5f3e4bf68c",
+          "hostnameHash": "180354140e6b8ce084455ad02bce747946ea82bcdfd6e71073effdab1049dfaf",
+          "gitEmailHash": "7432dd1d680d595c98494c93ca5cd723dcfd94bbdae24bfd672edcbb1d21f4ab",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "12th Gen Intel(R) Core(TM) i7-12650H",
+          "cpuCount": 10,
+          "memGiB": 24,
+          "isContainer": false,
+          "timezone": "Europe/London",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_test_0001",
+      "salt": "",
+      "expected": {
+        "thumbmark": "3c50ab53adb8b0d9323e5c3e065ef8156f817d8422e2e995dd5ff3a0254d2b03",
+        "components": {
+          "machineIdHash": "7f560e06d617b28e9a8a061b34a8cb30beb558fded4e90fe426c9d9598265175",
+          "macHashes": [
+            "ca131c924c75eb531d173bad329d7b9af77987d842a96c7b460cfbaa29862ebf",
+            "346e7727a0d1861324e370497a32edc97ce25e54311ce53f20ac72c66cc0fb1f"
+          ],
+          "osUserHash": "bebef7087bbf7f2e551951a1cda04313c1286bc1f2a855427ce3b2cb5e89e150",
+          "hostnameHash": "9bda59145571b16ff87070f228b34ce10d7a1b4a787c998aef4ffc6e971528c2",
+          "gitEmailHash": "ae73781f7e707d15729ff51b4e65939bbb35c45e359ca949289c7f629652cac8",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "Intel(R) Core(TM) i7-14700K",
+          "cpuCount": 20,
+          "memGiB": 16,
+          "isContainer": false,
+          "timezone": "Asia/Tokyo",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_9f8e7d6c5b4a",
+      "salt": "",
+      "expected": {
+        "thumbmark": "504f45e3af343c173565b0893101e7e3692464f1eae243674057ba7208007e50",
+        "components": {
+          "machineIdHash": "24063ba62fd72bc3c6408a211211436a8356041677420e09edca68971431e650",
+          "macHashes": [
+            "cad4d4bbe9552e914f6e1d1477b4926e2311436e54cc2f4806431c61c7de7439",
+            "b101ff8797e935ddc4ebd181544cb478763bfa735ff4901df2566f540aaa40a4",
+            "528fa06de9b8d843eca5d7a0493e82308764db3f3302efa383c7679d51da4b94",
+            "0f656bb2d6ffc66b359b24e22522f5cfa7ac85eaaa3d252185dd508a3d9111bc"
+          ],
+          "osUserHash": "9b7ebf9660f665909a2c156243557ffd36a1dfd0377ca6078a32fa07d751f49e",
+          "hostnameHash": "2642f8bae41fbe2e9e0dc5f1be76b10f7b1a7f8db69bbde33b918e2ce5e4ba1a",
+          "gitEmailHash": "c06e96fd63a8c3596d915cd724bb702c5fb524211888656607ecbabedae4fd4c",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "Intel(R) Core(TM) i7-14700K",
+          "cpuCount": 20,
+          "memGiB": 32,
+          "isContainer": false,
+          "timezone": "Pacific/Auckland",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_A-B_c",
+      "salt": "",
+      "expected": {
+        "thumbmark": "d9ec7167789d6ab0ff89f9f440cd04f6d21b4b235d85ab94fc34821c15df88e3",
+        "components": {
+          "machineIdHash": "df4d134ac214520e901c869f559baf94466866fd50af9f22569aa37a4903e4b0",
+          "macHashes": [
+            "6953cf6971a6ed330d9a8879588d5731a987cc19208957758ca2b38803167791",
+            "57f42232ea5db3682a81b02fbc373bcb5d49e71d50460a0d9a37362538bbef5d",
+            "f49d18594f1d296936f24b75893305df095b3862af03a57d62e3ad237c1daaf4",
+            "de6f8439b14f76deee6b17d92132948f5a36bc96f09c0ef7d9bad80e0672de23",
+            "8b28fce22ed0e7f59be81604dc0f349df7164e226c41b6795e588be8b9782868"
+          ],
+          "osUserHash": "c5dc86122c5ebb552f2e851bf8d77ee5c827e35a36d209c80261473a4ae7d16a",
+          "hostnameHash": "ec8487be9813a477de8b8770343994c1a2a70712f50ab3982c8ff38b67c8f41b",
+          "gitEmailHash": "f3530bdf24931dbdd65b0e4c94d6a4fb986a2647116e1cea58c1b9d89db9a1b1",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "Intel(R) Core(TM) i9-14900K",
+          "cpuCount": 24,
+          "memGiB": 8,
+          "isContainer": false,
+          "timezone": "Asia/Singapore",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_zzz",
+      "salt": "",
+      "expected": {
+        "thumbmark": "1628cf7d72c174a6f12e658e2c5019180213fe5861662f8e09ab769aba52afb3",
+        "components": {
+          "machineIdHash": "a844fbc727d0bd43c8dce7bea9fcb74d82623ef87f1dc48dce05bc8ba7896235",
+          "macHashes": [
+            "324ebdd6cc76d0b0d6d4b3c61356e7da363ba1a12d3fb581da4b7f0c62779c8e",
+            "cdf46c87175dc0c56ac47384313e009555c063e607ad20e69f17997c4e767236",
+            "9da894905951346de27b5388f3bb9487728806164f7d70dc1b9a22144563b97f",
+            "dd576553e5bd6ad1efd97a2b0e07216288de8f521a20f35635e0c51fe0bc8bdb"
+          ],
+          "osUserHash": "06414579e1354d2814990a25ee0523d4cc1fab56fe9218004b1d8d5f3e4bf68c",
+          "hostnameHash": "80206ffc83eb7eed94fae17edb02c7298647e19e1813cf5aac584aee18bb9383",
+          "gitEmailHash": "7e52b02eb877b8fb44acc6d30c3139a45f410a62b26e3fa1be5ba7f587e6761e",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "Intel(R) Core(TM) i9-14900K",
+          "cpuCount": 24,
+          "memGiB": 16,
+          "isContainer": false,
+          "timezone": "Asia/Singapore",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_长id_测试",
+      "salt": "",
+      "expected": {
+        "thumbmark": "912553675a996ffb8566b3dde643c6ee3d64863d66bfddb7f83d29f0fb21fd1d",
+        "components": {
+          "machineIdHash": "9f7b28ce1b5a668d996968855b1ed3fc77e85195f681c2a03fbbc4d695811cfb",
+          "macHashes": [
+            "12bcd6bc098ebbc15df0c9b60ba5e8dfad69aacd73268ae63fa37dc892ee83f6",
+            "62ffb9d0e2b5fb2515d20e3c31839912023c4c4bdf0e33b7bb4aaeb601654b59",
+            "23a6fb3026dd1d26ef8241eba40ed25d7721759b5041ef43c76847f87e1df4c6",
+            "8c46d498e91d99d6260133741bd5f988ebfa88ca45e63032795e253a4ce0d712"
+          ],
+          "osUserHash": "06414579e1354d2814990a25ee0523d4cc1fab56fe9218004b1d8d5f3e4bf68c",
+          "hostnameHash": "227cded1d22efd8075b2873fce0062c633f9864ee61b035e0d62b68007e7d65e",
+          "gitEmailHash": "1b51381b17e675bfe060a7ac3e833d8a70ec20116190f3bbddd3a3a2223bc0ca",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "AMD Ryzen 9 7950X",
+          "cpuCount": 16,
+          "memGiB": 16,
+          "isContainer": false,
+          "timezone": "Europe/Berlin",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_0123456789abcdef0123456789abcdef",
+      "salt": "",
+      "expected": {
+        "thumbmark": "54c2e3be7919b18ab965c596a60d2e87de9588dfed48504665d0fc469ee0d26f",
+        "components": {
+          "machineIdHash": "557605133d522e5b5c26fc02f45c76335257f4e4bf6778b84da7dfd4014585f9",
+          "macHashes": [
+            "0c3e0aa9032db93d43fd7b8f12ba5e84afa12e2c924a048de5a2b7cdd8b19db8",
+            "2624d5c8da9c1038a7ef01d48f74df53b6a0ec823f75af766ec8fc694c52e887"
+          ],
+          "osUserHash": "9b7ebf9660f665909a2c156243557ffd36a1dfd0377ca6078a32fa07d751f49e",
+          "hostnameHash": "c27d1224ed3c3f1ccd32681d06f57a42f43199db67c4b98f586d6680e90b0cd7",
+          "gitEmailHash": "292c97c9e34c3768901f1dd25acd425afc676d1c0b6b796d43d7ce64adc638d9",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "AMD Ryzen 7 7800X3D",
+          "cpuCount": 8,
+          "memGiB": 24,
+          "isContainer": false,
+          "timezone": "America/Chicago",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_abc123",
+      "salt": "pepper-1",
+      "expected": {
+        "thumbmark": "58bc90df26df43798819e4bab529b2d0c3a8e7cc7cbabc7b89e330113ffae20d",
+        "components": {
+          "machineIdHash": "227ddc0c0afb00f5d1e4824e3e6ebb936fcf8a3b3b957f311481afd267a0f6fb",
+          "macHashes": [
+            "d0b80f24abc4a9c50adb6757c57373c25e4af0caf38aa4dd1a693d6028982523",
+            "e105e27a533eb7f6bd14f179d6a86c267b624db822a1dc07e965aaf09111acb8",
+            "d09971b76a7fa2266562450ee09ebbb2495684ad886eca9bb2abfa6f41197fa0",
+            "3baf22c053317604e55958c1604b0b4512b9632474c79804d62c27b2da73f1dc",
+            "46a57bd663eba3f378e57ba90414bb9cef9a3e1f442828e41905bff1a17dec3a"
+          ],
+          "osUserHash": "33df3268dfdc602495ca0d23a6d1b2b61ac808dfbc8b04fc5ade73af04a07678",
+          "hostnameHash": "1553e837989820ca98a2cade9f5ae790693c6f57240871e5b92dc97d4bbb9373",
+          "gitEmailHash": "c1e654e55727d491dbe1286638c8c60eb02d84b6785bdcae9ddd5897ca2e8b4e",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "AMD Ryzen 7 7800X3D",
+          "cpuCount": 8,
+          "memGiB": 32,
+          "isContainer": false,
+          "timezone": "America/Toronto",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_test_0001",
+      "salt": "pepper-1",
+      "expected": {
+        "thumbmark": "0e5d6a47931ef4364841dc7adb215fa3c9e5c8deace5cfca651987d50c0a9a63",
+        "components": {
+          "machineIdHash": "15c536ee39b4bdec77ff1fa02fad794a5687ac6fb8020d8fda364f6e2f0fb0c6",
+          "macHashes": [
+            "01eafcc7af25dce4245f263ee9175a53ceb9fd7eaa1898cb99b110aed68920aa",
+            "0809bdb4d8f35f7039d14dafeb7e4ee550a336a89ed670a70e86ad48db3c5185",
+            "15e9fa1d3e553be68ff77b854a75e777f156bf4dbff44a54488ee5c07a503cdf",
+            "b6d8a6016ecb2ec059192ee505725aa212b7f855e10c5c7a47ee34e9df5a5dd9"
+          ],
+          "osUserHash": "c5dc86122c5ebb552f2e851bf8d77ee5c827e35a36d209c80261473a4ae7d16a",
+          "hostnameHash": "d9ce83205960d9c20dc8c463d5ae4d3109b549b5a72cdf1e8363a0b4b053ebb4",
+          "gitEmailHash": "e9cc4b6e76f9d0fbb83f997615aeca918ecc1808b711d33afd885a8db13f74c1",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "12th Gen Intel(R) Core(TM) i5-12400F",
+          "cpuCount": 6,
+          "memGiB": 8,
+          "isContainer": false,
+          "timezone": "Asia/Seoul",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_9f8e7d6c5b4a",
+      "salt": "pepper-1",
+      "expected": {
+        "thumbmark": "0e812df92e8683b15b04cd6e475500952a96915395c1df3bab4fb0dd5778d95b",
+        "components": {
+          "machineIdHash": "cadd935b329c6d59550eb5240727ef2392eb4d3206de1e6e077f4b06e90a7ccd",
+          "macHashes": [
+            "1c56c14748d8bad1812e4747fda19e8992da5c0fc52d67676f41c0f45afbf4e3",
+            "1554d3793c0531863977befadf403f70112b35bc552cd864ff23b34f3de0fe6d",
+            "98cdef463264987659b52a3cda9d996c440299fef85efb0ec587198142a43316",
+            "7235e4e61420e0fd652cf03890247dfcf5c40238e3e24620067b84a90970fde5",
+            "29c3a550ca496d8516b2519d61b2ce1305b1da36375e951fc9e300d55cdd97a5"
+          ],
+          "osUserHash": "845392654d16216abd349a7bf1911584c4e74091483182f5fb6745e24d8bcabf",
+          "hostnameHash": "43515a681e8745276a02583d249e905baf20ddb943925a7b9cc5293c203793ec",
+          "gitEmailHash": "b05e11b22515c7e4ba67468ae2606a58ee70e1c4588d283973778114e926b191",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "Intel(R) Core(TM) Ultra 7 155H",
+          "cpuCount": 16,
+          "memGiB": 32,
+          "isContainer": false,
+          "timezone": "Asia/Seoul",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_A-B_c",
+      "salt": "pepper-1",
+      "expected": {
+        "thumbmark": "1b5d1cf04806f80b5521dd652a7b79840b5422a5b7f57cf5e6478c6bfd438e56",
+        "components": {
+          "machineIdHash": "944c3fa58df152801edbf0e1bd6f371813fbb23d3660f2b7cff64df0c37770f5",
+          "macHashes": [
+            "e3431bc50f46205f19743c555c777a775bbd17856acbc153572c36826291183c",
+            "853fd92fd45b6d0b27a9db6e733b250114d2a39b9be1bb4cc4dfe926be58c090",
+            "4823a66611ba3c4d05dfa070e4d9be671201a3f43fd5353ffb8c5f1b16068c17"
+          ],
+          "osUserHash": "c5dc86122c5ebb552f2e851bf8d77ee5c827e35a36d209c80261473a4ae7d16a",
+          "hostnameHash": "fa93df3f810c2b9806098ecb0ba16189a8a12e961b7a57df1131dcc567243f95",
+          "gitEmailHash": "922d2da45cd3121fe7779e102e5d98477d412798907423c8638824a6ab4d4213",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "13th Gen Intel(R) Core(TM) i5-13600K",
+          "cpuCount": 14,
+          "memGiB": 32,
+          "isContainer": false,
+          "timezone": "America/Toronto",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_zzz",
+      "salt": "pepper-1",
+      "expected": {
+        "thumbmark": "3e871941a61c3d7c00557dff71a5af3bb81fc5f84849ba6bd9b1b2447373105d",
+        "components": {
+          "machineIdHash": "46688d00f566b13d9eb91f9f2cb4ea3da2b0c6986db72357b327719edd8713bb",
+          "macHashes": [
+            "8c089d3a559d690c5627911fd321490041176e381fc7bdf481fb49085af28545",
+            "1df81fc88ef47061bc36d44d006b217da3a527bdb918911bb973509b7dc332b9"
+          ],
+          "osUserHash": "06414579e1354d2814990a25ee0523d4cc1fab56fe9218004b1d8d5f3e4bf68c",
+          "hostnameHash": "b5ee48a857edf091d8075966d9fe8e964de07612de659dac21f03f3ddf10de04",
+          "gitEmailHash": "8f3ee9222c6ba83f078ebb0addbc774279ff7af7ef7c73e62606996e83bd31c2",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "AMD Ryzen 9 7900X",
+          "cpuCount": 12,
+          "memGiB": 48,
+          "isContainer": false,
+          "timezone": "Europe/Paris",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_长id_测试",
+      "salt": "pepper-1",
+      "expected": {
+        "thumbmark": "7284b50f9e1ec403972552fe640a39f03dffe491ae2ef12e032abe41c1726416",
+        "components": {
+          "machineIdHash": "97e141ec7c07a8f06ef35678f52ed3c2379a2a113ae25967d45d184eda71243f",
+          "macHashes": [
+            "9bd85f3e6b8c63ad53de124cfb5dea88c7201b84116489a8edd779cb03385b8f",
+            "f0ee7c73d9caf8c8b1d18a283ff06c5848a55e5cd5e61e569105fe1c572a42dc",
+            "c87a778c96a2e909f74cbb1768b70463315afaaebfb9aca08d86a0a1679c679c"
+          ],
+          "osUserHash": "c5dc86122c5ebb552f2e851bf8d77ee5c827e35a36d209c80261473a4ae7d16a",
+          "hostnameHash": "984ee963656c9c4873be41ad1685685caf6b0aed3ac2c519593b1db5705912f0",
+          "gitEmailHash": "6130f5542aa8fa0d9260cad91cfb4d54c53947d79e14bc885a9cc10046df6e2d",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "13th Gen Intel(R) Core(TM) i9-13900K",
+          "cpuCount": 24,
+          "memGiB": 32,
+          "isContainer": false,
+          "timezone": "America/Chicago",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    },
+    {
+      "api_key": "user_0123456789abcdef0123456789abcdef",
+      "salt": "pepper-1",
+      "expected": {
+        "thumbmark": "c611c4dff0316f1685ffc8276bcc11ffa0394e4fb10d56acacf17070ce71a6ea",
+        "components": {
+          "machineIdHash": "5671657aa5b591bfa1f13a2b4638ef514ac21a3b956d0ce2436706de590fa172",
+          "macHashes": [
+            "dffdd96fa1ed3eeee4454f2964edae04242d2cac43b24781ca5d93740658cead",
+            "e71990b0bc482cf4ccd344fd43b5f6841e06bd34858f24564860514145325316",
+            "a96fe9c0557f392e311d2210e131c6fbd26cb2a01b5c4e1e380fa21bcd51589f",
+            "df3157775e9a8cc75c3d35ad3ae3b606614ea71eca4fde475844a43118e3a5d6"
+          ],
+          "osUserHash": "c5dc86122c5ebb552f2e851bf8d77ee5c827e35a36d209c80261473a4ae7d16a",
+          "hostnameHash": "18c83f821be723553e26a0db1b4f44ad9ef3beb8be13fa374e8c93da6d8804ca",
+          "gitEmailHash": "a60b6a4e13bac5d2f207ab6f73a7280b79694d6442ffe37c6fce1efd6c7eb7b0",
+          "platform": "win32",
+          "arch": "x64",
+          "osRelease": "10.0.22631",
+          "cpuModel": "13th Gen Intel(R) Core(TM) i9-13900K",
+          "cpuCount": 24,
+          "memGiB": 32,
+          "isContainer": false,
+          "timezone": "Asia/Hong_Kong",
+          "runtime": "cli",
+          "collectorVersion": 1
+        }
+      }
+    }
+  ]
+}

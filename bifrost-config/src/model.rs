@@ -1,0 +1,453 @@
+//! The configuration schema.
+
+use std::path::PathBuf;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+
+/// The only configuration schema version this build understands.
+pub const CONFIG_VERSION: u32 = 1;
+
+/// The effective configuration.
+///
+/// Every field has a default, so a partial file is valid. Unknown fields are a
+/// hard error.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+    pub version: u32,
+    pub host: String,
+    pub port: u16,
+    pub api_base: String,
+    pub device: DeviceConfig,
+    pub wire: WireConfig,
+    pub limits: LimitsConfig,
+    pub mechanisms: MechanismsConfig,
+    pub models: ModelsConfig,
+    pub fingerprint: FingerprintConfig,
+    pub audit: AuditConfig,
+    pub telemetry: TelemetryConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            version: CONFIG_VERSION,
+            host: "0.0.0.0".to_owned(),
+            port: 3050,
+            api_base: "https://api.commandcode.ai".to_owned(),
+            device: DeviceConfig::default(),
+            wire: WireConfig::default(),
+            limits: LimitsConfig::default(),
+            mechanisms: MechanismsConfig::default(),
+            models: ModelsConfig::default(),
+            fingerprint: FingerprintConfig::default(),
+            audit: AuditConfig::default(),
+            telemetry: TelemetryConfig::default(),
+        }
+    }
+}
+
+/// The machine this deployment claims to be.
+///
+/// A profile rather than a set of knobs: the fingerprint, the request
+/// environment, the working directory, the project slug and the lifecycle
+/// metadata all come from here, so a deployment cannot describe itself two ways.
+/// Only the working directory is configurable, because it is the one part of the
+/// profile that has to look plausible to a person; the rest is the original's.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DeviceConfig {
+    /// The working directory to report, and what the project slug is derived
+    /// from. Unset means the built-in profile, rather than a second copy of its
+    /// path kept here to drift away from it.
+    ///
+    /// The original reads the same thing from `CC_DEVICE_PROJECT_DIR`.
+    ///
+    /// Not serialized when it is unset, so that a printed configuration is a TOML
+    /// file that can be read back rather than one with a null in it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_dir: Option<String>,
+}
+
+/// An upstream protocol adapter identifier, e.g. `cc/1.53.1`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterId {
+    pub name: String,
+    pub version: String,
+}
+
+/// Which upstream dialect to speak, and how to react when it drifts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WireConfig {
+    /// `<name>/<major>.<minor>.<patch>`.
+    pub adapter: String,
+    /// Warn when the published client version moves ahead of the implemented one.
+    ///
+    /// A warning and nothing else. The version reported upstream is always the one
+    /// this build implements: claiming a version whose shape is not implemented is
+    /// a stronger signal than claiming an older one, so the published version is
+    /// read to be compared against, never to be adopted.
+    pub drift_watch: bool,
+    /// Where the published version of the client is read from.
+    ///
+    /// A registry rather than an API host, and configurable because a mirror is
+    /// the difference between a check that answers and one that times out.
+    pub drift_registry: String,
+    /// Ask the upstream to route only through zero-data-retention providers.
+    pub zdr: bool,
+}
+
+impl Default for WireConfig {
+    fn default() -> Self {
+        Self {
+            adapter: "cc/1.53.1".to_owned(),
+            drift_watch: true,
+            drift_registry: "https://registry.npmjs.org".to_owned(),
+            zdr: false,
+        }
+    }
+}
+
+impl WireConfig {
+    /// Parse [`WireConfig::adapter`], returning `None` when it is malformed.
+    #[must_use]
+    pub fn parse_adapter(&self) -> Option<AdapterId> {
+        let (name, version) = self.adapter.split_once('/')?;
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        {
+            return None;
+        }
+        let parts: Vec<&str> = version.split('.').collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        if !parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+        {
+            return None;
+        }
+        Some(AdapterId {
+            name: name.to_owned(),
+            version: version.to_owned(),
+        })
+    }
+}
+
+/// Resource ceilings and timeouts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LimitsConfig {
+    /// Request body ceiling. Oversized requests get `413` and the connection is
+    /// drained so it stays reusable.
+    pub max_body_mb: u32,
+    /// Upstream read-idle timeout while streaming.
+    pub stream_idle_ms: u64,
+    /// Upstream read-idle timeout for non-streaming requests.
+    pub nonstream_idle_ms: u64,
+    /// In-flight request ceiling for the process; `0` means unlimited.
+    pub max_inflight: u32,
+    /// Watchdog for a downstream client that stopped reading; `0` disables it.
+    pub client_stall_ms: u64,
+    /// How long the pre-flight that announces a key to the upstream may take.
+    ///
+    /// The turn that triggers one waits for it, so that the upstream knows the
+    /// device before it is asked to generate. A pre-flight that overruns is
+    /// abandoned and the turn proceeds: the introduction is worth waiting a
+    /// little for and never worth failing a request over.
+    pub announce_ms: u64,
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_body_mb: 100,
+            stream_idle_ms: 30_000,
+            nonstream_idle_ms: 90_000,
+            max_inflight: 0,
+            client_stall_ms: 0,
+            announce_ms: 10_000,
+        }
+    }
+}
+
+impl LimitsConfig {
+    #[must_use]
+    pub const fn max_body_bytes(&self) -> u64 {
+        self.max_body_mb as u64 * 1024 * 1024
+    }
+
+    #[must_use]
+    pub const fn stream_idle(&self) -> Duration {
+        Duration::from_millis(self.stream_idle_ms)
+    }
+
+    #[must_use]
+    pub const fn nonstream_idle(&self) -> Duration {
+        Duration::from_millis(self.nonstream_idle_ms)
+    }
+
+    /// How long the announcement pre-flight may take before it is abandoned.
+    #[must_use]
+    pub const fn announce(&self) -> Duration {
+        Duration::from_millis(self.announce_ms)
+    }
+
+    /// How long a client may stop taking bytes before the upstream is cut loose,
+    /// or `None` when the watchdog is off.
+    #[must_use]
+    pub const fn client_stall(&self) -> Option<Duration> {
+        if self.client_stall_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(self.client_stall_ms))
+        }
+    }
+
+    /// The idle timeout to apply for a given request shape.
+    #[must_use]
+    pub const fn idle_for(&self, streaming: bool) -> Duration {
+        if streaming {
+            self.stream_idle()
+        } else {
+            self.nonstream_idle()
+        }
+    }
+}
+
+/// Optional behaviors.
+///
+/// The three that reproduce the original proxy's behavior default to on; every
+/// mechanism that adds new work is off until an operator asks for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MechanismsConfig {
+    /// Report the derived device identity to the upstream.
+    ///
+    /// The identity is a deterministic function of the key either way; this is
+    /// whether it is recorded upstream, which is the only thing that makes it
+    /// observable.
+    pub fingerprint: bool,
+    /// Announce a key to the upstream before it is used to generate.
+    ///
+    /// The pre-flight that carries the fingerprint record and the session event,
+    /// once per key per window. Turning this off stops both.
+    pub lifecycle: bool,
+    /// Per-key session id with expiry and jitter.
+    pub session: bool,
+    /// Content-addressed archival of requests and upstream responses.
+    pub evidence_archive: bool,
+    /// Forward prompt-cache breakpoints.
+    pub prompt_cache: bool,
+    /// Hint the upstream to compact context after repeated timeouts.
+    pub timeout_context_hint: bool,
+}
+
+impl Default for MechanismsConfig {
+    fn default() -> Self {
+        Self {
+            fingerprint: true,
+            lifecycle: true,
+            session: true,
+            evidence_archive: false,
+            prompt_cache: false,
+            timeout_context_hint: false,
+        }
+    }
+}
+
+/// What `/v1/models` answers with, and where that answer comes from.
+///
+/// The endpoint is a compatibility surface: a client asks what it may request
+/// before it requests it. The list can come from the upstream, which knows what
+/// the account can actually use, or from the table compiled into this build, which
+/// is what a deployment that cannot reach the catalogue falls back to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ModelsConfig {
+    /// Ask the upstream which models this account may use.
+    ///
+    /// Off means the built-in table is the whole answer, and no call is made.
+    pub provider: bool,
+    /// How long a fetched list is reused before it is fetched again.
+    ///
+    /// `0` fetches on every request, which is only sensible against an upstream
+    /// whose catalogue changes faster than its clients start.
+    pub refresh_ms: u64,
+    /// How long a fetch may take before the built-in table is used instead.
+    pub timeout_ms: u64,
+}
+
+impl Default for ModelsConfig {
+    fn default() -> Self {
+        Self {
+            provider: true,
+            refresh_ms: 5 * 60 * 1000,
+            timeout_ms: 10_000,
+        }
+    }
+}
+
+impl ModelsConfig {
+    #[must_use]
+    pub const fn refresh(&self) -> Duration {
+        Duration::from_millis(self.refresh_ms)
+    }
+
+    #[must_use]
+    pub const fn timeout(&self) -> Duration {
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
+/// Device-identity input.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FingerprintConfig {
+    /// Rotates the derived identity in bulk. Empty means the built-in rule.
+    pub salt: String,
+}
+
+/// Where audit artifacts live, and how long they are kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuditConfig {
+    /// Append-only JSONL decision log.
+    pub journal_dir: PathBuf,
+    /// Content-addressed blob store.
+    pub archive_dir: PathBuf,
+    /// Remove archived bytes written longer ago than this many days. 0 keeps them
+    /// for as long as the deployment runs.
+    pub retain_days: u32,
+    /// Remove the oldest archived bytes until at most this many megabytes are left.
+    /// 0 is no ceiling.
+    pub max_total_mb: u64,
+}
+
+impl AuditConfig {
+    /// Whether this deployment asked for the archive to be pruned at all.
+    #[must_use]
+    pub const fn prunes(&self) -> bool {
+        self.retain_days > 0 || self.max_total_mb > 0
+    }
+
+    /// How long archived bytes are kept, when an age was asked for.
+    ///
+    /// Days rather than seconds because this is the scale an operator thinks in —
+    /// the difference between a week and a month is the difference they care about,
+    /// and the difference between 604800 and 2592000 is not one they check.
+    #[must_use]
+    pub const fn retain_age(&self) -> Option<Duration> {
+        if self.retain_days == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.retain_days as u64 * 24 * 60 * 60))
+        }
+    }
+
+    /// The ceiling archived bytes are held under, when one was asked for.
+    #[must_use]
+    pub const fn max_total_bytes(&self) -> Option<u64> {
+        if self.max_total_mb == 0 {
+            None
+        } else {
+            Some(self.max_total_mb * 1024 * 1024)
+        }
+    }
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            journal_dir: PathBuf::from("var/journal"),
+            archive_dir: PathBuf::from("var/archive"),
+            retain_days: 0,
+            max_total_mb: 0,
+        }
+    }
+}
+
+/// Log rendering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    #[default]
+    Json,
+    Text,
+}
+
+impl LogFormat {
+    /// The name as it is configured and as it is written in a line.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            LogFormat::Json => "json",
+            LogFormat::Text => "text",
+        }
+    }
+}
+
+/// How much of the log a deployment keeps.
+///
+/// Ordered from quietest to loudest, so that "does this message clear the
+/// configured level" is a comparison rather than a set of cases.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+}
+
+impl LogLevel {
+    /// The name as it is configured and as it is written in a line.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+        }
+    }
+}
+
+impl std::str::FromStr for LogLevel {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "error" => Ok(LogLevel::Error),
+            "warn" => Ok(LogLevel::Warn),
+            "info" => Ok(LogLevel::Info),
+            "debug" => Ok(LogLevel::Debug),
+            other => Err(format!(
+                "unknown log level {other:?}; expected error, warn, info or debug"
+            )),
+        }
+    }
+}
+
+/// Observability settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TelemetryConfig {
+    pub log_level: LogLevel,
+    pub log_format: LogFormat,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            log_level: LogLevel::Info,
+            log_format: LogFormat::Json,
+        }
+    }
+}

@@ -1,0 +1,154 @@
+{
+  "source": "commandcode-proxy/proxy.mjs (createResponsesSseTranslator, extracted verbatim)",
+  "note": "item ids are rewritten to the positional form Bifrost mints; every other byte is verbatim. `error_case.frames` is the stream as it stood when the upstream broke, before the terminal event the original would have appended and Bifrost does not send.",
+  "model": "deepseek/deepseek-v4-flash",
+  "id": "resp_fixture",
+  "created": 1700000000,
+  "cases": [
+    {
+      "name": "plain text with a terminal usage report",
+      "lines": [
+        "{\"type\":\"start\"}",
+        "{\"type\":\"text-start\"}",
+        "{\"type\":\"text-delta\",\"text\":\"Hello\"}",
+        "{\"type\":\"text-delta\",\"text\":\", world\"}",
+        "{\"type\":\"text-end\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":10,\"outputTokens\":3,\"cachedInputTokens\":4}}"
+      ],
+      "frames": [
+        "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+        "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":3,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":4,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\",\"logprobs\":[]}\n\n",
+        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":5,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"delta\":\", world\",\"logprobs\":[]}\n\n",
+        "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"sequence_number\":6,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"text\":\"Hello, world\",\"logprobs\":[]}\n\n",
+        "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":7,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"Hello, world\",\"annotations\":[]}}\n\n",
+        "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":8,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello, world\",\"annotations\":[]}]}}\n\n",
+        "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":9,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello, world\",\"annotations\":[]}]}],\"output_text\":\"Hello, world\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{},\"usage\":{\"input_tokens\":10,\"input_tokens_details\":{\"cached_tokens\":4,\"cache_write_tokens\":0},\"output_tokens\":3,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":13}}}\n\n"
+      ]
+    },
+    {
+      "name": "reasoning opens its own item before the answer",
+      "lines": [
+        "{\"type\":\"reasoning-delta\",\"text\":\"think\"}",
+        "{\"type\":\"reasoning-delta\",\"text\":\"ing\"}",
+        "{\"type\":\"text-delta\",\"text\":\"answer\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":5,\"outputTokens\":2}}"
+      ],
+      "frames": [
+        "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_0\",\"summary\":[],\"status\":\"in_progress\"}}\n\n",
+        "event: response.reasoning_summary_part.added\ndata: {\"type\":\"response.reasoning_summary_part.added\",\"sequence_number\":3,\"item_id\":\"rs_0\",\"output_index\":0,\"summary_index\":0,\"part\":{\"type\":\"summary_text\",\"text\":\"\"}}\n\n",
+        "event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":4,\"item_id\":\"rs_0\",\"output_index\":0,\"summary_index\":0,\"delta\":\"think\"}\n\n",
+        "event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":5,\"item_id\":\"rs_0\",\"output_index\":0,\"summary_index\":0,\"delta\":\"ing\"}\n\n",
+        "event: response.reasoning_summary_text.done\ndata: {\"type\":\"response.reasoning_summary_text.done\",\"sequence_number\":6,\"item_id\":\"rs_0\",\"output_index\":0,\"summary_index\":0,\"text\":\"thinking\"}\n\n",
+        "event: response.reasoning_summary_part.done\ndata: {\"type\":\"response.reasoning_summary_part.done\",\"sequence_number\":7,\"item_id\":\"rs_0\",\"output_index\":0,\"summary_index\":0,\"part\":{\"type\":\"summary_text\",\"text\":\"thinking\"}}\n\n",
+        "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":8,\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_0\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"thinking\"}],\"status\":\"completed\"}}\n\n",
+        "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":9,\"output_index\":1,\"item\":{\"type\":\"message\",\"id\":\"msg_1\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+        "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":10,\"item_id\":\"msg_1\",\"output_index\":1,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":11,\"item_id\":\"msg_1\",\"output_index\":1,\"content_index\":0,\"delta\":\"answer\",\"logprobs\":[]}\n\n",
+        "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"sequence_number\":12,\"item_id\":\"msg_1\",\"output_index\":1,\"content_index\":0,\"text\":\"answer\",\"logprobs\":[]}\n\n",
+        "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":13,\"item_id\":\"msg_1\",\"output_index\":1,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"answer\",\"annotations\":[]}}\n\n",
+        "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":14,\"output_index\":1,\"item\":{\"type\":\"message\",\"id\":\"msg_1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\",\"annotations\":[]}]}}\n\n",
+        "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":15,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"id\":\"rs_0\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"thinking\"}],\"status\":\"completed\"},{\"type\":\"message\",\"id\":\"msg_1\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\",\"annotations\":[]}]}],\"output_text\":\"answer\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{},\"usage\":{\"input_tokens\":5,\"input_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0},\"output_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":7}}}\n\n"
+      ]
+    },
+    {
+      "name": "a tool call opens an item whose opening frame has no arguments yet",
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"looking\"}",
+        "{\"type\":\"tool-call\",\"toolCallId\":\"call_a\",\"toolName\":\"search\",\"input\":{\"q\":\"cats\"}}",
+        "{\"type\":\"finish\",\"finishReason\":\"tool-calls\",\"totalUsage\":{\"inputTokens\":7,\"outputTokens\":9}}"
+      ],
+      "frames": [
+        "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+        "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":3,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":4,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"delta\":\"looking\",\"logprobs\":[]}\n\n",
+        "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"sequence_number\":5,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"text\":\"looking\",\"logprobs\":[]}\n\n",
+        "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":6,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"looking\",\"annotations\":[]}}\n\n",
+        "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":7,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"looking\",\"annotations\":[]}]}}\n\n",
+        "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":8,\"output_index\":1,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_a\",\"name\":\"search\",\"arguments\":\"\",\"status\":\"in_progress\"}}\n\n",
+        "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"sequence_number\":9,\"item_id\":\"fc_1\",\"output_index\":1,\"delta\":\"{\\\"q\\\":\\\"cats\\\"}\"}\n\n",
+        "event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":10,\"item_id\":\"fc_1\",\"output_index\":1,\"arguments\":\"{\\\"q\\\":\\\"cats\\\"}\"}\n\n",
+        "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":11,\"output_index\":1,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_a\",\"name\":\"search\",\"arguments\":\"{\\\"q\\\":\\\"cats\\\"}\",\"status\":\"completed\"}}\n\n",
+        "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":12,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"looking\",\"annotations\":[]}]},{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_a\",\"name\":\"search\",\"arguments\":\"{\\\"q\\\":\\\"cats\\\"}\",\"status\":\"completed\"}],\"output_text\":\"looking\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{},\"usage\":{\"input_tokens\":7,\"input_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0},\"output_tokens\":9,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":16}}}\n\n"
+      ]
+    },
+    {
+      "name": "a truncated turn ends on response.incomplete",
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"half\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"length\",\"totalUsage\":{\"inputTokens\":3,\"outputTokens\":1}}"
+      ],
+      "frames": [
+        "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+        "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":3,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":4,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"delta\":\"half\",\"logprobs\":[]}\n\n",
+        "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"sequence_number\":5,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"text\":\"half\",\"logprobs\":[]}\n\n",
+        "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":6,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"half\",\"annotations\":[]}}\n\n",
+        "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":7,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"half\",\"annotations\":[]}]}}\n\n",
+        "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"sequence_number\":8,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"incomplete\",\"output\":[{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"half\",\"annotations\":[]}]}],\"output_text\":\"half\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{},\"usage\":{\"input_tokens\":3,\"input_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0},\"output_tokens\":1,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":4}}}\n\n"
+      ]
+    },
+    {
+      "name": "silent and unknown events produce no frames",
+      "lines": [
+        "{\"type\":\"provider-metadata\",\"provider\":\"x\"}",
+        "{\"type\":\"brand-new-event\"}",
+        ": keepalive",
+        "[DONE]",
+        "{\"type\":\"text-delta\",\"text\":\"after noise\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":1,\"outputTokens\":1}}"
+      ],
+      "frames": [
+        "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+        "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+        "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":3,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":4,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"delta\":\"after noise\",\"logprobs\":[]}\n\n",
+        "event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"sequence_number\":5,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"text\":\"after noise\",\"logprobs\":[]}\n\n",
+        "event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"sequence_number\":6,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"after noise\",\"annotations\":[]}}\n\n",
+        "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":7,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"after noise\",\"annotations\":[]}]}}\n\n",
+        "event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":8,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"after noise\",\"annotations\":[]}]}],\"output_text\":\"after noise\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{},\"usage\":{\"input_tokens\":1,\"input_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0},\"output_tokens\":1,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":2}}}\n\n"
+      ]
+    },
+    {
+      "name": "an empty delta opens nothing",
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":1,\"outputTokens\":1}}"
+      ],
+      "frames": []
+    }
+  ],
+  "error_case": {
+    "lines": [
+      "{\"type\":\"text-delta\",\"text\":\"partial\"}",
+      "{\"type\":\"error\",\"error\":{\"message\":\"<429> slow down\",\"code\":\"RATE_LIMITED\"}}"
+    ],
+    "frames": [
+      "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+      "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"in_progress\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":null,\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n",
+      "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_0\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+      "event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"sequence_number\":3,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+      "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":4,\"item_id\":\"msg_0\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\",\"logprobs\":[]}\n\n"
+    ],
+    "failed_frames": [
+      "event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":5,\"response\":{\"id\":\"resp_fixture\",\"object\":\"response\",\"created_at\":1700000000,\"status\":\"failed\",\"output\":[],\"output_text\":\"\",\"model\":\"deepseek/deepseek-v4-flash\",\"error\":{\"code\":\"upstream_error\",\"message\":\"slow down\"},\"incomplete_details\":null,\"parallel_tool_calls\":true,\"previous_response_id\":null,\"store\":false,\"tools\":[],\"metadata\":{}}}\n\n"
+    ],
+    "error_frame": "event: error\ndata: {\"type\":\"error\",\"sequence_number\":5,\"code\":null,\"message\":\"slow down\",\"param\":null}\n\n"
+  },
+  "silent_case": {
+    "lines": [
+      "{\"type\":\"start\"}",
+      "{\"type\":\"finish\",\"finishReason\":\"stop\"}"
+    ],
+    "frames": []
+  }
+}

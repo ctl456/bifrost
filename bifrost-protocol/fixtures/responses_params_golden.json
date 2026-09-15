@@ -1,0 +1,712 @@
+{
+  "source": "commandcode-proxy/proxy.mjs (convertResponsesToChat + buildCcRequest, extracted verbatim)",
+  "note": "compare against the full Bifrost path: Responses decode then cc/1.53.1 encode",
+  "cases": [
+    {
+      "name": "a plain string input is one user turn",
+      "request": {
+        "model": "deepseek/deepseek-v4-flash",
+        "input": "hello"
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "an item with a role but no type is still a message",
+      "request": {
+        "input": [
+          {
+            "role": "user",
+            "content": "first"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "second"
+              }
+            ]
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "second"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "instructions become the system prompt",
+      "request": {
+        "instructions": "be brief",
+        "input": "hi"
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": "be brief"
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "instructions may be block shaped",
+      "request": {
+        "instructions": [
+          {
+            "type": "input_text",
+            "text": "stable "
+          },
+          {
+            "type": "input_text",
+            "text": "prefix"
+          }
+        ],
+        "input": "hi"
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": "stable prefix"
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "a developer message item becomes a system section too",
+      "request": {
+        "instructions": "first section",
+        "input": [
+          {
+            "type": "message",
+            "role": "developer",
+            "content": "second section"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": "first section\n"
+          },
+          {
+            "type": "text",
+            "text": "second section"
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "reasoning a message and its calls become one assistant turn",
+      "request": {
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": "search for cats"
+          },
+          {
+            "type": "reasoning",
+            "summary": [
+              {
+                "type": "summary_text",
+                "text": "I should "
+              },
+              {
+                "type": "summary_text",
+                "text": "search"
+              }
+            ]
+          },
+          {
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "on it"
+              }
+            ]
+          },
+          {
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": "search",
+            "arguments": "{\"q\":\"cats\"}"
+          },
+          {
+            "type": "function_call",
+            "call_id": "call_2",
+            "name": "fetch",
+            "arguments": {
+              "url": "https://x"
+            }
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "found 3"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "call_2",
+            "output": {
+              "count": 2
+            }
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "search for cats"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "I should search"
+              },
+              {
+                "type": "text",
+                "text": "on it"
+              },
+              {
+                "type": "tool-call",
+                "toolCallId": "call_1",
+                "toolName": "search",
+                "input": {
+                  "q": "cats"
+                }
+              },
+              {
+                "type": "tool-call",
+                "toolCallId": "call_2",
+                "toolName": "fetch",
+                "input": {
+                  "url": "https://x"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "search",
+                "output": {
+                  "type": "text",
+                  "value": "found 3"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool-result",
+                "toolCallId": "call_2",
+                "toolName": "fetch",
+                "output": {
+                  "type": "text",
+                  "value": "{\"count\":2}"
+                }
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "a reasoning item without an answer is not a turn",
+      "request": {
+        "input": [
+          {
+            "type": "reasoning",
+            "text": "thinking with nothing to say"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "an unparseable argument string becomes an empty object",
+      "request": {
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": "read",
+            "arguments": "not json"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call",
+                "toolCallId": "call_1",
+                "toolName": "read",
+                "input": {}
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "a message the client addressed with no content is still a turn",
+      "request": {
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": []
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "function tools are forwarded with their schemas",
+      "request": {
+        "input": "hi",
+        "tools": [
+          {
+            "type": "function",
+            "name": "bash_output",
+            "description": "read output",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "type": "function",
+            "name": "read_multiple_files"
+          },
+          {
+            "name": "named-without-a-type"
+          },
+          {
+            "type": "web_search"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": [
+          {
+            "name": "shell_output",
+            "description": "read output",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "read_file",
+            "description": "",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "named-without-a-type",
+            "description": "",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a tool choice mode is carried",
+      "request": {
+        "input": "hi",
+        "tool_choice": "required"
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": [],
+        "tool_choice": {
+          "type": "any"
+        }
+      }
+    },
+    {
+      "name": "a forced tool is named",
+      "request": {
+        "input": "hi",
+        "tool_choice": {
+          "type": "function",
+          "name": "search"
+        }
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": [],
+        "tool_choice": {
+          "type": "tool",
+          "name": "search"
+        }
+      }
+    },
+    {
+      "name": "every sampling parameter is forwarded",
+      "request": {
+        "model": "deepseek/deepseek-v4-flash",
+        "input": "hi",
+        "max_output_tokens": 1234,
+        "temperature": 0.25,
+        "top_p": 0.9,
+        "parallel_tool_calls": false,
+        "reasoning": {
+          "effort": "high"
+        }
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 1234,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "temperature": 0.25,
+        "reasoning_effort": "high",
+        "tools": [],
+        "parallel_tool_calls": false
+      }
+    },
+    {
+      "name": "a reasoning configuration without an effort sends no level",
+      "request": {
+        "input": "hi",
+        "reasoning": {
+          "summary": "auto"
+        }
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "an unknown item type is dropped without failing the request",
+      "request": {
+        "input": [
+          {
+            "type": "brand_new_item",
+            "content": "x"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "content": "kept"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "kept"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    }
+  ]
+}

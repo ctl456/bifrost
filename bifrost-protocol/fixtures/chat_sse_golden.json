@@ -1,0 +1,116 @@
+{
+  "source": "commandcode-proxy/proxy.mjs (createSseTranslator region, extracted verbatim)",
+  "note": "frames are the parser output only; the original writes [DONE] from the handler",
+  "model": "deepseek/deepseek-v4-flash",
+  "id": "chatcmpl-fixture",
+  "created": 1700000000,
+  "cases": [
+    {
+      "name": "plain text with a terminal usage report",
+      "lines": [
+        "{\"type\":\"start\"}",
+        "{\"type\":\"text-start\"}",
+        "{\"type\":\"text-delta\",\"text\":\"Hello\"}",
+        "{\"type\":\"text-delta\",\"text\":\", world\"}",
+        "{\"type\":\"text-end\"}",
+        "{\"type\":\"finish-step\",\"finishReason\":\"stop\",\"usage\":{\"inputTokens\":10,\"outputTokens\":3,\"cachedInputTokens\":4}}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":10,\"outputTokens\":3,\"cachedInputTokens\":4}}"
+      ],
+      "frames": [
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\", world\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":3,\"total_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":4}}}\n\n"
+      ],
+      "done": "data: [DONE]\n\n",
+      "output_tokens": 3,
+      "input_tokens": 10,
+      "cached_input_tokens": 4
+    },
+    {
+      "name": "reasoning before text",
+      "lines": [
+        "{\"type\":\"reasoning-start\"}",
+        "{\"type\":\"reasoning-delta\",\"text\":\"thinking\"}",
+        "{\"type\":\"reasoning-end\"}",
+        "{\"type\":\"text-delta\",\"text\":\"answer\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":5,\"outputTokens\":2}}"
+      ],
+      "frames": [
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"thinking\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n"
+      ],
+      "done": "data: [DONE]\n\n",
+      "output_tokens": 2,
+      "input_tokens": 5,
+      "cached_input_tokens": 0
+    },
+    {
+      "name": "a tool call carries index id and arguments",
+      "lines": [
+        "{\"type\":\"tool-input-start\"}",
+        "{\"type\":\"tool-input-delta\"}",
+        "{\"type\":\"tool-input-end\"}",
+        "{\"type\":\"tool-call\",\"toolCallId\":\"call_a\",\"toolName\":\"shell_output\",\"input\":{\"cmd\":\"ls\"}}",
+        "{\"type\":\"finish\",\"finishReason\":\"tool-calls\",\"totalUsage\":{\"inputTokens\":7,\"outputTokens\":9}}"
+      ],
+      "frames": [
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"shell_output\",\"arguments\":\"{\\\"cmd\\\":\\\"ls\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":9,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n"
+      ],
+      "done": "data: [DONE]\n\n",
+      "output_tokens": 9,
+      "input_tokens": 7,
+      "cached_input_tokens": 0
+    },
+    {
+      "name": "the step reason is used when the terminal event omits one",
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"hi\"}",
+        "{\"type\":\"finish-step\",\"finishReason\":\"length\",\"usage\":{\"inputTokens\":3,\"outputTokens\":1}}",
+        "{\"type\":\"finish\",\"totalUsage\":{\"inputTokens\":3,\"outputTokens\":1}}"
+      ],
+      "frames": [
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n"
+      ],
+      "done": "data: [DONE]\n\n",
+      "output_tokens": 1,
+      "input_tokens": 3,
+      "cached_input_tokens": 0
+    },
+    {
+      "name": "silent and unknown events produce no frames",
+      "lines": [
+        "{\"type\":\"provider-metadata\",\"provider\":\"x\"}",
+        "{\"type\":\"brand-new-event\"}",
+        ": keepalive",
+        "[DONE]",
+        "{\"type\":\"text-delta\",\"text\":\"after noise\"}",
+        "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":1,\"outputTokens\":1}}"
+      ],
+      "frames": [
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"after noise\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n"
+      ],
+      "done": "data: [DONE]\n\n",
+      "output_tokens": 1,
+      "input_tokens": 1,
+      "cached_input_tokens": 0
+    },
+    {
+      "name": "an upstream error yields no frames from the parser",
+      "lines": [
+        "{\"type\":\"text-delta\",\"text\":\"partial\"}",
+        "{\"type\":\"error\",\"error\":{\"message\":\"<429> slow down\",\"code\":\"RATE_LIMITED\"}}"
+      ],
+      "frames": [
+        "data: {\"id\":\"chatcmpl-fixture\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"deepseek/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"partial\"},\"finish_reason\":null}]}\n\n"
+      ],
+      "done": "data: [DONE]\n\n",
+      "output_tokens": 0,
+      "input_tokens": 0,
+      "cached_input_tokens": 0
+    }
+  ]
+}

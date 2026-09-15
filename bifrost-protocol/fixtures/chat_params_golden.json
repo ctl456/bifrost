@@ -1,0 +1,833 @@
+{
+  "source": "commandcode-proxy/proxy.mjs (buildCcRequest and its helpers, extracted verbatim)",
+  "note": "compare against the full Bifrost path: protocol decode then cc/1.53.1 encode",
+  "cases": [
+    {
+      "name": "plain user turn with no system prompt",
+      "request": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello"
+          }
+        ],
+        "stream": true
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "system and developer turns are joined as sections",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "first section"
+          },
+          {
+            "role": "developer",
+            "content": [
+              {
+                "type": "text",
+                "text": "second section"
+              }
+            ]
+          },
+          {
+            "role": "system",
+            "content": "third section"
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": "first section\n"
+          },
+          {
+            "type": "text",
+            "text": "second section\n"
+          },
+          {
+            "type": "text",
+            "text": "third section"
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "an empty system section with a breakpoint is kept",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "text",
+                "text": "",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          },
+          {
+            "role": "system",
+            "content": "tail"
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": "\n",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          },
+          {
+            "type": "text",
+            "text": "tail"
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "a multimodal user turn keeps part order",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look at these"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,AAAA"
+                }
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "https://example.test/a.jpg",
+                  "detail": "high"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look at these"
+              },
+              {
+                "type": "image",
+                "image": "data:image/png;base64,AAAA",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "image",
+                "image": "https://example.test/a.jpg"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "an assistant turn keeps reasoning text then calls",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "search"
+          },
+          {
+            "role": "assistant",
+            "reasoning_content": "I should search",
+            "content": "on it",
+            "tool_calls": [
+              {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                  "name": "search",
+                  "arguments": "{\"q\":\"cats\"}"
+                }
+              },
+              {
+                "id": "call_2",
+                "type": "function",
+                "function": {
+                  "name": "fetch",
+                  "arguments": {
+                    "url": "https://x"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": "found 3"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_2",
+            "name": "fallback_name",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_missing",
+            "content": "orphan"
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "search"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "I should search"
+              },
+              {
+                "type": "text",
+                "text": "on it"
+              },
+              {
+                "type": "tool-call",
+                "toolCallId": "call_1",
+                "toolName": "search",
+                "input": {
+                  "q": "cats"
+                }
+              },
+              {
+                "type": "tool-call",
+                "toolCallId": "call_2",
+                "toolName": "fetch",
+                "input": {
+                  "url": "https://x"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "search",
+                "output": {
+                  "type": "text",
+                  "value": "found 3"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool-result",
+                "toolCallId": "call_2",
+                "toolName": "fetch",
+                "output": {
+                  "type": "text",
+                  "value": "a\nb"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "tool-result",
+                "toolCallId": "call_missing",
+                "toolName": "",
+                "output": {
+                  "type": "text",
+                  "value": "orphan"
+                }
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "assistant content parts keep their own order",
+      "request": {
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "part one"
+              },
+              {
+                "type": "reasoning",
+                "text": "inline thinking"
+              },
+              {
+                "type": "text",
+                "text": "part two",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "part one"
+              },
+              {
+                "type": "reasoning",
+                "text": "inline thinking"
+              },
+              {
+                "type": "text",
+                "text": "part two",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "tool definitions are aliased and defaulted",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "bash_output",
+              "description": "read output"
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read_multiple_files",
+              "description": "",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "plain"
+            }
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": [
+          {
+            "name": "shell_output",
+            "description": "read output",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            }
+          },
+          {
+            "name": "read_file",
+            "description": "",
+            "input_schema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "plain",
+            "description": "",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "every sampling parameter is forwarded",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "max_tokens": 1234,
+        "temperature": 0.25,
+        "reasoning_effort": "high",
+        "parallel_tool_calls": false,
+        "tool_choice": "required",
+        "prompt_cache_key": "cache-me"
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 1234,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "temperature": 0.25,
+        "reasoning_effort": "high",
+        "tools": [],
+        "tool_choice": {
+          "type": "any"
+        },
+        "parallel_tool_calls": false
+      }
+    },
+    {
+      "name": "a prompt cache key marks the last section when the client marked none",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "stable prefix"
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "prompt_cache_key": "bucket"
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": "stable prefix",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "an unknown role and unknown parts degrade instead of failing",
+      "request": {
+        "messages": [
+          {
+            "role": "observer",
+            "content": "wat"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "video",
+                "url": "x"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "audio"
+              },
+              {
+                "type": "text",
+                "text": "kept"
+              }
+            ]
+          }
+        ]
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "wat"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "video",
+                "url": "x"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "kept"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "tool choice spellings normalise onto the wire vocabulary",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "search"
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "function",
+          "function": {
+            "name": "search"
+          }
+        }
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": [
+          {
+            "name": "search",
+            "description": "",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "tool",
+          "name": "search"
+        }
+      }
+    },
+    {
+      "name": "max tokens above the cap is clamped",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "max_tokens": 999999
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 200000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": " "
+          }
+        ],
+        "tools": []
+      }
+    },
+    {
+      "name": "a client breakpoint wins over the prompt cache key",
+      "request": {
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "text",
+                "text": "marked",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          },
+          {
+            "role": "system",
+            "content": "unmarked"
+          },
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ],
+        "prompt_cache_key": "cache-bucket-1"
+      },
+      "params": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          }
+        ],
+        "max_tokens": 64000,
+        "stream": true,
+        "system": [
+          {
+            "type": "text",
+            "text": "marked\n",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          },
+          {
+            "type": "text",
+            "text": "unmarked"
+          }
+        ],
+        "tools": []
+      }
+    }
+  ]
+}
