@@ -56,6 +56,7 @@ translation, not a gap in it.
 | Document | What it holds |
 |---|---|
 | `docs/usage.md` | the manual: build, configure, run, wire a client, operate, troubleshoot |
+| `docs/usage.zh.md` | the same manual in Chinese |
 | `docs/architecture.md` | the crates and the contracts between them |
 | `docs/wire-alignment.md` | how the dialect is checked against the published client, and the result |
 | `bifrost.example.toml` | every setting there is, with its default and the reason for it |

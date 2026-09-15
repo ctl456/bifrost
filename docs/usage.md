@@ -2,7 +2,8 @@
 
 This is the operational manual: how to build it, what to put in the file, how to
 run it, how to point a client at it, and what to do when an answer is not the one
-you expected. `README.md` explains why the design is shaped the way it is;
+you expected. The Chinese version is `docs/usage.zh.md`; this one is the original,
+so a change lands here first. `README.md` explains why the design is shaped the way it is;
 `docs/architecture.md` explains the crates.
 
 ## What it is
