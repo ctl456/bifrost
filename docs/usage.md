@@ -103,13 +103,60 @@ reason for it. `--print-config` prints what the process actually resolved to, wi
 the fingerprint salt redacted — the file you edited is one of three layers, so the
 resolved value is the answer that was not already on your screen.
 
-### The key never goes in this file
+### The key arrives per request — unless this deployment issues tokens
 
-The key arrives per request, as a client's would, in `Authorization: Bearer …` or
-`x-api-key: …`, and both headers are accepted on every endpoint. Bifrost does not
-read `~/.commandcode/auth.json` and has no setting for a key, because a key in a
-configuration file is a key in a backup, a unit file and a `ps` output. Under
-systemd the client-facing key is the client's problem; the unit needs none.
+By default the key arrives per request, as a client's would, in
+`Authorization: Bearer …` or `x-api-key: …`, and both headers are accepted on every
+endpoint. Bifrost does not read `~/.commandcode/auth.json` and has no setting for a
+key, because a key in a configuration file is a key in a backup, a unit file and a
+`ps` output. Under systemd the client-facing key is the client's problem; the unit
+needs none.
+
+`[access]` is the other arrangement, for a deployment that is not only your own
+machine: the key is read from a file this process owns and every caller is given a
+token instead. Nothing about the default changes while it is off, and it is off.
+
+```toml
+[access]
+enabled = true
+key_file = "/home/you/.commandcode/auth.json"
+tokens_file = "var/tokens.json"
+```
+
+### Issuing a token
+
+```sh
+./target/release/bifrost --token-new laptop --rpm 60 --concurrency 2 --config bifrost.toml
+# token `laptop` issued: bfr_9f0c…   — shown here once, and only here
+./target/release/bifrost --token-list              --config bifrost.toml
+./target/release/bifrost --token-revoke phone      --config bifrost.toml
+```
+
+- The token is the client's credential in place of the key: `Authorization: Bearer
+  bfr_…` or `x-api-key: bfr_…`. Nothing else about a client's configuration changes.
+- `--token-new` prints it once and keeps its sha256, so a lost token is issued again
+  rather than looked up, and the file can be read, copied and backed up without being
+  a credential. It is written `0600`.
+- A name is one word — letters, digits, `-`, `_`, `.` — because it ends up in an
+  access line as `token=<name>` and is the argument to `--token-revoke`. A name that
+  has been used stays taken: a revoked token is marked rather than deleted, so a name
+  seen in a log can be told from one that was never issued.
+- `--rpm` and `--concurrency` are per token and default to no limit. The minute is a
+  bucket that refills continuously, so a caller at the limit waits the fraction of a
+  minute its next request is worth instead of a wall-clock boundary; the concurrency
+  ceiling is what keeps one caller from holding every place this deployment has.
+- The serving process re-reads the file when it changes, so issuing and revoking reach
+  a running deployment. Deleting the file is a deployment with no tokens: that refuses
+  everything, which is the loudest thing an accidental deletion can do.
+- A key is not a token here. A `user_…` key sent to a deployment that issues tokens is
+  refused with a `401` that says so, and that is the point: a credential that still
+  worked would be one revocation does not reach.
+- `GET /status` gains a row per token — name, requests served, in flight, idle time,
+  revoked — which is the question the aggregate counters cannot answer: which caller
+  is the one filling the ceiling.
+- **The key is still not in the file.** `access.key_file` names a file this process
+  reads; the key itself is never printed by `--print-config`, never logged, and never
+  sent to a client.
 
 ## Wiring a client
 
@@ -173,8 +220,8 @@ onto one this account may use:
 | Method | Path | Key? | Answers |
 |---|---|---|---|
 | `GET` | `/health`, `/` | no | `OK` — liveness only |
-| `GET` | `/status` | no | Counters: uptime, turns, refused, unauthenticated, too_large, malformed, upstream_failed, timeouts, client_stalls, inflight, max_inflight |
-| `GET` | `/v1/models` | no | The provider's catalogue, cached; the built-in table only before the first successful fetch. Not plan-filtered: it names models this plan refuses |
+| `GET` | `/status` | no | Counters: uptime, turns, refused, unauthenticated, too_large, malformed, upstream_failed, timeouts, client_stalls, inflight, max_inflight, and one row per issued token — names, never credentials |
+| `GET` | `/v1/models` | no | The provider's catalogue, cached; the built-in table only before the first successful fetch. Not plan-filtered: it names models this plan refuses. A deployment that issues tokens fetches it with the key it holds, because a catalogue is the deployment's own question rather than a caller's |
 | `POST` | `/v1/chat/completions` | yes | OpenAI Chat Completions, streaming and whole |
 | `POST` | `/v1/messages` | yes | Anthropic Messages |
 | `POST` | `/v1/responses` | yes | OpenAI Responses |
@@ -268,7 +315,12 @@ End to end, against the live service:
   images as `{"type":"image","image":"data:…","mimeType":…}`, and headers
   (`user-agent: cli`, `x-command-code-version`, `x-project-slug`, `traceparent`);
 - Claude Code `2.1.119` (43k-token system prompt and tools) and Codex CLI `0.115.0`
-  (Responses API) driven through it, both answering `OK`.
+  (Responses API) driven through it, both answering `OK`;
+- a deployment that issues tokens: a token serves a turn while the upstream is spoken
+  to with the deployment's own key, a `user_…` key is refused where tokens are issued,
+  a revocation and a fresh issue both reach a running process, an empty minute answers
+  `429` with the wait, and a token over its ceiling answers the same retryable `503`
+  this deployment's own ceiling does.
 
 ## Deliberate differences from the original
 

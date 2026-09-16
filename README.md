@@ -56,6 +56,35 @@ The official `cmdc` client is not one of them: it talks the `/alpha/*` protocol,
 Bifrost serves the three public protocols instead. That is the direction of the
 translation, not a gap in it.
 
+## Handing it out
+
+Forwarding the caller's key is the default, and it is the right answer for one
+machine. A deployment that is more than that — another laptop, a colleague, a fleet
+of agents — can hold the key itself and issue tokens instead:
+
+```toml
+[access]
+enabled = true
+key_file = "/home/you/.commandcode/auth.json"
+tokens_file = "var/tokens.json"
+```
+
+```sh
+./target/release/bifrost --token-new laptop --rpm 60 --concurrency 2 --config bifrost.toml
+# token `laptop` issued: bfr_9f0c…   — printed once, and only here
+```
+
+The token is the client's credential, in the same header as the key ever was. What it
+buys is revocation and accounting: the file holds only each token's sha256, so it can
+be read and backed up without being a credential; `--token-revoke` and `--token-new`
+reach a running deployment without a restart; `--rpm` and `--concurrency` keep one
+caller from spending the account for everybody; and each turn's access line records
+`token=<name>`, which is the question a shared subscription otherwise cannot answer —
+who is using this. The key itself still never leaves the machine it was given on: it
+is read from the file named above, never printed, never logged, never sent to a
+client. A `user_…` key sent to a deployment that issues tokens is refused: a
+credential that still worked would be one revocation does not reach.
+
 ## Documentation
 
 | Document | What it holds |
@@ -107,8 +136,10 @@ Phases P1 through P22 are complete: the gateway runs, every switch it advertises
 is honored, `/v1/models` reports the upstream's own catalogue, a deployment is
 told when the client its dialect was read from moves on, the machine it claims to
 be is configured in one place, every request leaves one line saying what it was and
-what it answered, and what the archive kept can be read back — listed, verified,
-audited, and handed over a turn at a time or a conversation at a time. The dialect
+what it answered, what the archive kept can be read back — listed, verified,
+audited, and handed over a turn at a time or a conversation at a time — and a
+deployment can hold the account key itself and hand callers tokens of their own,
+limited by the minute and by turns at once, revocable without a restart. The dialect
 has been checked against the live service as well as against the published client —
 see `docs/wire-alignment.md`.
 
@@ -126,7 +157,7 @@ verified and how.
 | `bifrost-fingerprint` | Device identity, byte-compatible with the official CLI |
 | `bifrost-wire` | `WireAdapter` contract and the `cc/1.53.1` dialect |
 | `bifrost-protocol` | `ProtocolAdapter` contract, OpenAI Chat, Anthropic Messages, OpenAI Responses |
-| `bifrost-edge` | axum HTTP surface, admission control, the streaming forwarding path, the model catalogue, the drift watch |
+| `bifrost-edge` | axum HTTP surface, admission control, issued tokens and their limits, the streaming forwarding path, the model catalogue, the drift watch |
 
 All three protocols work end to end through a running server: a client body
 decodes through the IR into a complete `cc/1.53.1` envelope, the upstream stream

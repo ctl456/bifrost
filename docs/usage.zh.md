@@ -83,9 +83,36 @@ curl -sS http://127.0.0.1:3050/v1/chat/completions \
 
 每一项设置及其默认值和理由都写在 `bifrost.example.toml` 里。`--print-config` 打印这个进程实际解析出来的配置（指纹盐已打码）——你改的文件只是三层里的一层，实际生效的值才是屏幕上原来没有的答案。
 
-### key 永远不写进这个文件
+### key 随请求进来——除非这个部署自己发牌
 
-key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer …` 或 `x-api-key: …` 里，两个头在所有端点上都被接受。Bifrost 不读 `~/.commandcode/auth.json`，也没有任何设置项用来存 key——因为写在配置文件里的 key 会进备份、进 unit 文件、进 `ps` 输出。跑在 systemd 下时，客户端那把 key 是客户端自己的事，unit 不需要。
+默认情况下 key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer …` 或 `x-api-key: …` 里，两个头在所有端点上都被接受。Bifrost 不读 `~/.commandcode/auth.json`，也没有任何设置项用来存 key——因为写在配置文件里的 key 会进备份、进 unit 文件、进 `ps` 输出。跑在 systemd 下时，客户端那把 key 是客户端自己的事，unit 不需要。
+
+`[access]` 是另一种安排，给「不止你自己这台机器」的部署用：key 由这个进程自己从一个文件里读，每个调用方拿到一把只属于自己的 token。关着的时候（默认就是关着）上面这些一个字都不变。
+
+```toml
+[access]
+enabled = true
+key_file = "/home/you/.commandcode/auth.json"
+tokens_file = "var/tokens.json"
+```
+
+### 发一把 token
+
+```sh
+./target/release/bifrost --token-new laptop --rpm 60 --concurrency 2 --config bifrost.toml
+# token `laptop` issued: bfr_9f0c…   —— 只在这里显示这一次
+./target/release/bifrost --token-list              --config bifrost.toml
+./target/release/bifrost --token-revoke phone      --config bifrost.toml
+```
+
+- token 就是客户端的凭据，位置和 key 一样：`Authorization: Bearer bfr_…` 或 `x-api-key: bfr_…`；客户端其它配置一个字都不用改。
+- `--token-new` 只显示一次，文件里存的是它的 sha256。所以 token 丢了是**重新发一把**，而不是去文件里找回来；而这个文件可以随便读、复制、备份，因为它本身不是凭据。文件权限写成 `0600`。
+- 名字是一个词——字母、数字、`-`、`_`、`.`——因为它会出现在访问行里（`token=<name>`），也是 `--token-revoke` 的参数。名字用过就一直占着：吊销是打标记而不是删除，这样日志里见过的名字，和从没发过的名字，是能分清的。
+- `--rpm` 和 `--concurrency` 都是按 token 算的，默认不限。每分钟那档是**连续回填**的桶：到限的调用方等的是「它下一个请求值多少秒」，而不是等一个整分钟的边界；并发那档是防止一个调用方把整个部署的位置全占住。
+- 服务进程会在文件变化时重新读它，所以发牌和吊销对**正在运行**的部署即时生效。把文件删掉等于这个部署一把 token 都没有：所有请求都被拒——这是误删能发出的最大声音。
+- 在这个模式下 **key 不是 token**。给一个自己发牌的部署发 `user_…` key，会被 `401` 顶回来，并且拒绝信息里就写明了这一点。这正是重点：一把还能用的 key，就是吊销够不到的 key。
+- `GET /status` 会多出每个 token 一行——名字、已服务请求数、在飞数、空闲时间、是否已吊销——这是那些总数回答不了的问题：**到底是谁在占满上限**。
+- **key 依然不在这个文件里。** `access.key_file` 只是这个进程去读的路径；key 本身不会被 `--print-config` 打印、不会进日志，也不会发给任何客户端。
 
 ## 接入客户端
 
@@ -126,8 +153,8 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 | 方法 | 路径 | 要 key？ | 返回 |
 |---|---|---|---|
 | `GET` | `/health`、`/` | 否 | `OK`，仅表示活着 |
-| `GET` | `/status` | 否 | 计数器：uptime、turns、refused、unauthenticated、too_large、malformed、upstream_failed、timeouts、client_stalls、inflight、max_inflight |
-| `GET` | `/v1/models` | 否 | 提供方的目录，带缓存；只有第一次成功拉取之前才用内置表。它不按套餐过滤：里面也有本套餐用不了的模型 |
+| `GET` | `/status` | 否 | 计数器：uptime、turns、refused、unauthenticated、too_large、malformed、upstream_failed、timeouts、client_stalls、inflight、max_inflight，外加每个已发 token 一行——只有名字，没有凭据 |
+| `GET` | `/v1/models` | 否 | 提供方的目录，带缓存；只有第一次成功拉取之前才用内置表。它不按套餐过滤：里面也有本套餐用不了的模型。自己发牌的部署用自己手里那把 key 去拉，因为拉清单是这个部署自己的问题，不是某个调用方的问题 |
 | `POST` | `/v1/chat/completions` | 是 | OpenAI Chat Completions，流式与整包 |
 | `POST` | `/v1/messages` | 是 | Anthropic Messages |
 | `POST` | `/v1/responses` | 是 | OpenAI Responses |
@@ -186,7 +213,8 @@ tools/smoke.sh --generate                                  # 起一个构建 + �
 
 - 三种协议，流式与整包，含工具调用、图片、`reasoning_effort` 与提示缓存；
 - 实际发到上游的字节，从一个「记录型替身上游」读回：预请求那一对、信封的键顺序、工具定义按 `input_schema` 发出、图片形如 `{"type":"image","image":"data:…","mimeType":…}`，以及请求头（`user-agent: cli`、`x-command-code-version`、`x-project-slug`、`traceparent`）；
-- Claude Code `2.1.119`（4.3 万 token 的系统提示与工具定义）与 Codex CLI `0.115.0`（Responses API）从它里面跑通，两者都答出了 `OK`。
+- Claude Code `2.1.119`（4.3 万 token 的系统提示与工具定义）与 Codex CLI `0.115.0`（Responses API）从它里面跑通，两者都答出了 `OK`；
+- 一个自己发牌的部署：一把 token 能跑通一个回合，而上游看到的是这个部署自己那把 key；在发牌的部署上发 `user_…` key 会被拒；吊销和补发都对正在运行的进程即时生效；一分钟用完回 `429` 并带上要等多久；token 占满自己的并发档时，回的是这个部署自己那档上限同样的可重试 `503`。
 
 ## 与原项目的有意差异
 

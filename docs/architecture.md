@@ -156,6 +156,53 @@ dialect. The table is off when it is empty, and validation refuses a rule that
 could never name a model — an empty pattern matches everything, which is a rule
 that looks like one line and behaves like a rewrite of the whole catalogue.
 
+## Issued tokens
+
+A deployment is either forwarding its callers' keys or issuing tokens of its own, and
+`bifrost-edge/src/access.rs` is the second half of that choice. It is a switch rather
+than a layer on top of the first arrangement, because the two are exclusive: a
+deployment that issued tokens *and* still honoured a `user_…` key would be handing
+out revocations that do not revoke. A key sent to it is refused with a `401` that says
+which deployment it is talking to.
+
+Three decisions shape the module:
+
+- **The file holds digests, not tokens.** What `--token-new` writes is the sha256 of
+  the token, so the file an operator backs up, diffs and reads is not a credential.
+  The price is that a lost token is re-issued rather than looked up, which is the
+  right price: a token that can be recovered from a file is a token that can be
+  recovered from a backup. Comparison is over digests and every entry is compared
+  rather than stopping at the match, so the loop's timing does not say which token
+  was presented or where it sits.
+- **The credential is read whole rather than scanned for a key.** The pass-through
+  path looks for the `user_…` shape inside whatever the client sent, which is what
+  lets a key wrapped in extra text still resolve. A token is not a shape to be found
+  in a string; it is a value that either matches one this deployment issued or does
+  not, and `bfr_` is the prefix that lets an operator tell the two kinds apart at a
+  glance.
+- **The file is re-read when it changes, not at startup.** One `stat` per request
+  buys the half of access control that matters: revocation reaches a running
+  deployment. A file that cannot be parsed is a file mid-edit, so the tokens already
+  loaded are kept and a warning is written; a file that is *gone* is a deployment
+  with no tokens and refuses everything, because the loudest thing an accidental
+  deletion can do is better than silently serving credentials nobody can take away.
+
+Two places a turn touches travel together in `Slots`, because a streamed answer
+outlives the handler that opened it: the deployment's own ceiling and the token's.
+A token's place released at return time would let one caller open as many streams as
+it liked while holding none of them.
+
+What a token buys is a name. It is what the access line records (`token=<name>`), what
+sessions are filed under — the identity a client's conversation is remembered by is
+the credential, not the shared key, or one caller's context would land in the middle
+of another's — and what `/status` reports. The account's key stays on the machine
+that was given it.
+
+The catalogue is the one path that reads the key without a caller having
+authenticated: `GET /v1/models` is a question about this deployment's account rather
+than about a caller, so it is asked with the key this process holds, and the answer is
+cached and shared between callers.
+
 ## Evidence preservation
 
 Transformations are lossy by design. The rule is that the original must remain
@@ -282,9 +329,11 @@ Every request gets a line, whether or not it reached an endpoint: a 404 and a CO
 preflight are accounted for exactly as a turn is, because they are the requests an
 operator is usually looking for. What the turn knew when it answered rides along —
 method, path, status, time to the answer, and then the protocol, the model, the
-stream flag and the fingerprint of the key it was billed to, once it had got that
-far. The key itself never does; the line is read by more people than the key was
-given to. The line is written when the answer begins rather than when it ends, so a
+stream flag, the fingerprint of the key it was billed to, and the name of the token
+it was billed to when this deployment issues them, once it had got that far. The key
+itself never does; the line is read by more people than the key was given to. A token
+is recorded by name for the same reason: a name is what an operator needs to act on,
+and it is not something that can be spent. The line is written when the answer begins rather than when it ends, so a
 stream that runs for minutes leaves a line about the wait its client felt, and what
 the stream cost is the evidence archive's question.
 
@@ -305,6 +354,14 @@ deployment cannot keep. The same reasoning retired the knob that would have
 reported a protocol version this build does not implement. `/status` is not that
 setting returning under another name: it has no switch, nothing to configure, and
 no decision anywhere is taken from it.
+
+A deployment that issues tokens adds one block to the same body: a row per token,
+naming it and counting what it has served, what it is serving now, how long ago it
+was last used and whether it has been revoked. A name is none of the things above —
+it is neither a credential nor a model nor a body, it is the label the operator
+wrote — and it is what answers the question the totals cannot: which caller is the
+one filling the ceiling. Rows for a deployment that issues no tokens are absent
+rather than empty.
 
 ## Determinism
 
