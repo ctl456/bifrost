@@ -103,6 +103,10 @@ pub struct Detail {
     pub requested_model: Option<String>,
     pub stream: Option<bool>,
     pub key_fingerprint: Option<String>,
+    /// The name this deployment issued the caller, absent when it forwards the
+    /// client's own key. A name rather than a credential, so the line stays
+    /// readable by everyone the log is handed to and spendable by none of them.
+    pub token: Option<String>,
 }
 
 /// One line: the request, then the pairs the turn knew, in a fixed order.
@@ -130,6 +134,7 @@ fn render_access(entry: &Access, format: LogFormat, at: &str) -> String {
             "model": entry.detail.model,
             "requested_model": entry.detail.requested_model,
             "stream": entry.detail.stream,
+            "token": entry.detail.token,
             "key": entry.detail.key_fingerprint,
         })
         .to_string(),
@@ -149,6 +154,9 @@ fn access_pairs(detail: &Detail) -> Vec<(&'static str, String)> {
     }
     if let Some(stream) = detail.stream {
         pairs.push(("stream", stream.to_string()));
+    }
+    if let Some(token) = &detail.token {
+        pairs.push(("token", token.clone()));
     }
     if let Some(key) = &detail.key_fingerprint {
         pairs.push(("key", key.clone()));
@@ -247,7 +255,8 @@ mod tests {
         assert_eq!(
             render_access(&worked(), LogFormat::Text, "2026-09-15T12:00:00Z"),
             "2026-09-15T12:00:00Z info  POST /v1/chat/completions 200 1234ms \
-protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789abcdef"
+protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true token=laptop \
+key=0123456789abcdef"
         );
     }
 
@@ -260,10 +269,11 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
             concat!(
                 r#"{"time":"2026-09-15T12:00:00Z","level":"info","#,
                 r#""msg":"POST /v1/chat/completions 200 1234ms protocol=openai-chat "#,
-                r#"model=deepseek/deepseek-v4-flash stream=true key=0123456789abcdef","#,
+                r#"model=deepseek/deepseek-v4-flash stream=true token=laptop "#,
+                r#"key=0123456789abcdef","#,
                 r#""method":"POST","path":"/v1/chat/completions","status":200,"ms":1234,"#,
                 r#""protocol":"openai-chat","model":"deepseek/deepseek-v4-flash","#,
-                r#""requested_model":null,"stream":true,"key":"0123456789abcdef"}"#
+                r#""requested_model":null,"stream":true,"token":"laptop","key":"0123456789abcdef"}"#
             )
         );
     }
@@ -288,7 +298,8 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
             concat!(
                 r#"{"time":"2026-09-15T12:00:00Z","level":"info","msg":"GET /health 200 0ms","#,
                 r#""method":"GET","path":"/health","status":200,"ms":0,"#,
-                r#""protocol":null,"model":null,"requested_model":null,"stream":null,"key":null}"#
+                r#""protocol":null,"model":null,"requested_model":null,"stream":null,"#,
+                r#""token":null,"key":null}"#
             )
         );
     }
@@ -301,6 +312,21 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
         let line = render_access(&entry, LogFormat::Text, "2026-09-15T12:00:00Z");
         assert!(!line.contains("user_"));
         assert!(line.ends_with("key=0123456789abcdef"));
+    }
+
+    /// A deployment that forwards the client's key names no token, rather than
+    /// naming an empty one: `token=` with nothing after it reads as a token that is
+    /// not there, which a collector would have to special-case.
+    #[test]
+    fn a_forwarded_key_names_no_token() {
+        let entry = Access {
+            detail: Detail {
+                token: None,
+                ..worked().detail
+            },
+            ..worked()
+        };
+        assert!(!render_access(&entry, LogFormat::Text, "2026-09-15T12:00:00Z").contains("token="));
     }
 
     /// A turn a rule pointed at another model records what was asked for beside
@@ -321,7 +347,7 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
             concat!(
                 "2026-09-15T12:00:00Z info  POST /v1/chat/completions 200 1234ms ",
                 "protocol=openai-chat model=deepseek/deepseek-v4-flash ",
-                "requested_model=claude-sonnet-5 stream=true key=0123456789abcdef"
+                "requested_model=claude-sonnet-5 stream=true token=laptop key=0123456789abcdef"
             )
         );
         assert!(
@@ -343,6 +369,7 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
                 requested_model: None,
                 stream: Some(true),
                 key_fingerprint: Some("0123456789abcdef".to_owned()),
+                token: Some("laptop".to_owned()),
             },
         }
     }

@@ -19,7 +19,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use axum::body::Bytes;
 use axum::response::IntoResponse;
 use bifrost_audit::{ArchiveRef, ArchiveStore, Journal};
-use bifrost_config::{AuditConfig, Config, DeviceConfig, LimitsConfig, MechanismsConfig, ModelsConfig};
+use bifrost_config::{AccessConfig, AuditConfig, Config, DeviceConfig, LimitsConfig, MechanismsConfig, ModelsConfig};
+use bifrost_edge::access::Document;
 use bifrost_edge::evidence::key_fingerprint;
 use bifrost_edge::models::BUILT_IN;
 use bifrost_edge::{Edge, app};
@@ -168,6 +169,11 @@ async fn status_of(edge: &str) -> Value {
     let response = client().get(format!("{edge}/status")).send().await.expect("send");
     assert_eq!(response.status(), 200, "the counts are readable without a key");
     response.json().await.expect("json")
+}
+
+/// The per-token rows `/status` reports.
+fn parsed_tokens(body: &str) -> Value {
+    serde_json::from_str::<Value>(body).expect("json")["tokens"].clone()
 }
 
 /// The path a turn is generated through.
@@ -406,6 +412,11 @@ async fn the_counts_are_readable_without_a_key_and_name_nothing_private() {
         "the counts must not quote a model: {body}"
     );
     assert!(!body.contains("canary_prompt"), "and never a body: {body}");
+    assert_eq!(
+        parsed_tokens(&body),
+        json!([]),
+        "and a deployment that issues no tokens names none"
+    );
 
     let parsed: Value = serde_json::from_str(&body).expect("json");
     let mut fields: Vec<&str> = parsed.as_object().expect("object").keys().map(String::as_str).collect();
@@ -419,6 +430,7 @@ async fn the_counts_are_readable_without_a_key_and_name_nothing_private() {
             "max_inflight",
             "refused",
             "timeouts",
+            "tokens",
             "too_large",
             "turns",
             "unauthenticated",
@@ -1913,4 +1925,312 @@ async fn a_deployment_without_sessions_reports_none() {
         "and the envelope does not carry one either: {}",
         generate.body
     );
+}
+
+/// An edge that issues tokens, and the token it issued for `name`.
+///
+/// The key file is written rather than mocked because it is a file the process
+/// reads: what is being tested is that the deployment serves with the key it was
+/// given, and a test that handed the key to the edge another way would not be
+/// testing that.
+async fn issuing_edge(upstream: &str, root: &Path, name: &str, rpm: u32, concurrency: u32) -> (String, String) {
+    issuing_edge_bounded(upstream, root, name, rpm, concurrency, LimitsConfig::default()).await
+}
+
+/// The same, for a test that needs the turn to end on its own quickly.
+async fn issuing_edge_bounded(
+    upstream: &str,
+    root: &Path,
+    name: &str,
+    rpm: u32,
+    concurrency: u32,
+    limits: LimitsConfig,
+) -> (String, String) {
+    std::fs::create_dir_all(root).expect("scratch");
+    let key_file = root.join("auth.json");
+    std::fs::write(&key_file, r#"{"apiKey":"user_deployment_key","userName":"ops"}"#).expect("write the key");
+    let tokens_file = root.join("tokens.json");
+    let path = tokens_file.clone();
+    let (edge, token) = issuing_edge_with(upstream, &key_file, path, name, rpm, concurrency, limits).await;
+    (edge, token)
+}
+
+/// The same, for a test that keeps the token file itself.
+async fn issuing_edge_with(
+    upstream: &str,
+    key_file: &Path,
+    tokens_file: PathBuf,
+    name: &str,
+    rpm: u32,
+    concurrency: u32,
+    limits: LimitsConfig,
+) -> (String, String) {
+    let mut document = Document::default();
+    let token = document.issue(name, rpm, concurrency).expect("issue");
+    document.write(&tokens_file).expect("write the tokens");
+    let edge = serve(Config {
+        api_base: upstream.to_owned(),
+        access: AccessConfig {
+            enabled: true,
+            key_file: Some(key_file.to_path_buf()),
+            tokens_file,
+        },
+        limits,
+        ..Config::default()
+    })
+    .await;
+    (edge, token)
+}
+
+fn a_turn(edge: &str, credential: &str) -> reqwest::RequestBuilder {
+    client()
+        .post(format!("{edge}/v1/chat/completions"))
+        .header("authorization", format!("Bearer {credential}"))
+        .json(&json!({ "model": "deepseek/deepseek-v4-flash", "messages": [{ "role": "user", "content": "hi" }] }))
+}
+
+/// The point of issuing tokens: the caller spends the account, and the account's
+/// key is nowhere the caller can reach it.
+#[tokio::test]
+async fn an_issued_token_serves_a_turn_with_the_deployment_key() {
+    let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let root = temp_dir("access-serves");
+    let (edge, token) = issuing_edge(&upstream, &root, "laptop", 0, 0).await;
+
+    let response = a_turn(&edge, &token).send().await.expect("send");
+    assert_eq!(response.status(), 200);
+    let _ = response.text().await;
+
+    {
+        let received = received.lock().expect("record");
+        assert_eq!(
+            received.last(GENERATE).header("authorization").as_deref(),
+            Some("Bearer user_deployment_key"),
+            "the upstream is spoken to with the key this deployment holds"
+        );
+    }
+
+    let status = status_of(&edge).await;
+    assert_eq!(status["tokens"][0]["name"], json!("laptop"));
+    assert_eq!(status["tokens"][0]["requests"], json!(1));
+    assert_eq!(status["tokens"][0]["inflight"], json!(0));
+    assert_eq!(status["tokens"][0]["revoked"], json!(false));
+    assert_eq!(status["unauthenticated"], json!(0));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A key is not a token. The half of access control that makes the rest of it
+/// mean something: a credential that still worked would be one no revocation
+/// reaches, and the caller would never learn which deployment it was talking to.
+#[tokio::test]
+async fn a_key_is_not_a_token_where_tokens_are_issued() {
+    let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let root = temp_dir("access-key-pointing");
+    let (edge, _) = issuing_edge(&upstream, &root, "laptop", 0, 0).await;
+
+    let response = a_turn(&edge, "user_a_key_of_its_own").send().await.expect("send");
+    assert_eq!(response.status(), 401);
+    let body: Value = response.json().await.expect("json");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("issues its own tokens"),
+        "the refusal says which deployment this is: {body}"
+    );
+
+    let response = a_turn(&edge, "bfr_not_a_token_that_was_issued")
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(
+        response.status(),
+        401,
+        "and so is one shaped like a token but not issued"
+    );
+
+    assert_eq!(
+        received.lock().expect("record").count(GENERATE),
+        0,
+        "nothing reached the upstream"
+    );
+    assert_eq!(status_of(&edge).await["unauthenticated"], json!(2));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Revocation is the reason to issue tokens at all, so it is read from the file on
+/// the request rather than at startup: a token that only stops working after a
+/// restart is one that works until somebody remembers.
+#[tokio::test]
+async fn a_revoked_token_stops_working_at_once() {
+    let (upstream, _) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let root = temp_dir("access-revoke");
+    let key_file = root.join("auth.json");
+    let tokens_file = root.join("tokens.json");
+    std::fs::create_dir_all(&root).expect("scratch");
+    std::fs::write(&key_file, r#"{"apiKey":"user_deployment_key"}"#).expect("write the key");
+    let (edge, token) = issuing_edge_with(
+        &upstream,
+        &key_file,
+        tokens_file.clone(),
+        "phone",
+        0,
+        0,
+        LimitsConfig::default(),
+    )
+    .await;
+
+    assert_eq!(a_turn(&edge, &token).send().await.expect("send").status(), 200);
+
+    let mut document = Document::read(&tokens_file).expect("read");
+    document.revoke("phone").expect("revoke");
+    document.write(&tokens_file).expect("write");
+
+    assert_eq!(
+        a_turn(&edge, &token).send().await.expect("send").status(),
+        401,
+        "the next request is refused"
+    );
+    let status = status_of(&edge).await;
+    assert_eq!(status["tokens"][0]["revoked"], json!(true), "and the count says why");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A token issued while the deployment runs is usable without a restart, which is
+/// the other half of the same mechanism.
+#[tokio::test]
+async fn a_token_issued_while_it_runs_is_picked_up() {
+    let (upstream, _) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let root = temp_dir("access-issue-live");
+    let key_file = root.join("auth.json");
+    let tokens_file = root.join("tokens.json");
+    std::fs::create_dir_all(&root).expect("scratch");
+    std::fs::write(&key_file, r#"{"apiKey":"user_deployment_key"}"#).expect("write the key");
+    let (edge, first) = issuing_edge_with(
+        &upstream,
+        &key_file,
+        tokens_file.clone(),
+        "laptop",
+        0,
+        0,
+        LimitsConfig::default(),
+    )
+    .await;
+
+    let mut document = Document::read(&tokens_file).expect("read");
+    let second = document.issue("phone", 0, 0).expect("issue");
+    document.write(&tokens_file).expect("write");
+
+    assert_eq!(a_turn(&edge, &first).send().await.expect("send").status(), 200);
+    assert_eq!(
+        a_turn(&edge, &second).send().await.expect("send").status(),
+        200,
+        "a token issued after the process started works while it runs"
+    );
+    let status = status_of(&edge).await;
+    assert_eq!(status["tokens"].as_array().expect("rows").len(), 2);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A minute's allowance is a limit on the caller rather than on the account, and
+/// it comes with the number the client should wait.
+#[tokio::test]
+async fn a_token_over_its_minute_is_told_to_wait() {
+    let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let root = temp_dir("access-rpm");
+    let (edge, token) = issuing_edge(&upstream, &root, "laptop", 1, 0).await;
+
+    assert_eq!(a_turn(&edge, &token).send().await.expect("send").status(), 200);
+    let refused = a_turn(&edge, &token).send().await.expect("send");
+    assert_eq!(refused.status(), 429, "the second request in the minute is over it");
+    assert_eq!(
+        refused.headers().get("retry-after").expect("hint"),
+        "60",
+        "a minute's bucket that is empty is a minute to wait"
+    );
+
+    assert_eq!(
+        received.lock().expect("record").count(GENERATE),
+        1,
+        "a request refused for the limit never reached the upstream"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// One caller holding every place is the failure a per-token ceiling exists to
+/// prevent, so the refusal is the same retryable answer the deployment's own
+/// ceiling gives.
+#[tokio::test]
+async fn a_token_over_its_ceiling_is_refused_as_retryable() {
+    let upstream = stalling_upstream().await;
+    let root = temp_dir("access-concurrency");
+    // The upstream never answers, so the first turn holds the token's only place
+    // while the second arrives — and the idle window is short so the first turn
+    // ends on its own rather than leaving the test waiting out the default.
+    let (edge, token) = issuing_edge_bounded(
+        &upstream,
+        &root,
+        "laptop",
+        0,
+        1,
+        LimitsConfig {
+            nonstream_idle_ms: 400,
+            ..LimitsConfig::default()
+        },
+    )
+    .await;
+
+    let (first, second) = tokio::join!(a_turn(&edge, &token).send(), async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        a_turn(&edge, &token).send().await
+    });
+
+    let second = second.expect("send");
+    assert_eq!(second.status(), 503);
+    assert_eq!(second.headers().get("retry-after").expect("hint"), "5");
+    let body: Value = second.json().await.expect("json");
+    assert!(
+        body["error"]["message"].as_str().expect("message").contains("laptop"),
+        "the refusal names the token that is over its ceiling: {body}"
+    );
+
+    // The first was admitted and timed out on its own, which is what says the
+    // second was refused for the token's ceiling rather than for something else.
+    assert_eq!(first.expect("send").status(), 429);
+    assert_eq!(status_of(&edge).await["tokens"][0]["requests"], json!(1));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A deployment that issues tokens asks its own question of the catalogue, so an
+/// anonymous `GET /v1/models` answers with this account's models rather than the
+/// table compiled into the build.
+#[tokio::test]
+async fn the_catalogue_is_fetched_with_the_deployment_key() {
+    let (upstream, received) = routed_upstream(|path| {
+        if path == CATALOGUE {
+            (
+                200,
+                r#"{"data":[{"id":"deepseek/deepseek-v4-flash"}]}"#.to_owned(),
+                "application/json",
+            )
+        } else {
+            (200, DELTAS.to_owned(), "application/x-ndjson")
+        }
+    })
+    .await;
+    let root = temp_dir("access-catalogue");
+    let (edge, _) = issuing_edge(&upstream, &root, "laptop", 0, 0).await;
+
+    let response = client().get(format!("{edge}/v1/models")).send().await.expect("send");
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["data"][0]["id"], json!("deepseek/deepseek-v4-flash"));
+
+    let received = received.lock().expect("record");
+    assert_eq!(
+        received.last(CATALOGUE).header("authorization").as_deref(),
+        Some("Bearer user_deployment_key"),
+        "the fetch is the deployment's own call, made with the key it holds"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

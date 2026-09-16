@@ -25,6 +25,7 @@ pub struct Config {
     pub limits: LimitsConfig,
     pub mechanisms: MechanismsConfig,
     pub models: ModelsConfig,
+    pub access: AccessConfig,
     pub fingerprint: FingerprintConfig,
     pub audit: AuditConfig,
     pub telemetry: TelemetryConfig,
@@ -42,6 +43,7 @@ impl Default for Config {
             limits: LimitsConfig::default(),
             mechanisms: MechanismsConfig::default(),
             models: ModelsConfig::default(),
+            access: AccessConfig::default(),
             fingerprint: FingerprintConfig::default(),
             audit: AuditConfig::default(),
             telemetry: TelemetryConfig::default(),
@@ -341,6 +343,50 @@ impl ModelsConfig {
             .filter(|(pattern, _)| !pattern.is_empty() && lower.starts_with(&pattern.to_ascii_lowercase()))
             .max_by_key(|(pattern, _)| pattern.len())
             .map(|(_, model)| model.as_str())
+    }
+}
+
+/// Who may use this deployment, and which key it uses on their behalf.
+///
+/// Off by default, and off is the trade every earlier build made: the client
+/// sends a key of its own and this process forwards it. On is the other trade —
+/// the key lives here and on no client, each caller is given a token of its own,
+/// and a token can be limited or revoked without touching anyone else's. That is
+/// what makes the deployment something to hand out rather than a copy of a key
+/// handed out with it.
+///
+/// The two are exclusive rather than layered: a deployment that issues tokens
+/// refuses a `user_…` key, because a key that still works is a key no revocation
+/// reaches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AccessConfig {
+    /// Issue tokens instead of forwarding the client's key.
+    pub enabled: bool,
+    /// The file the upstream key is read from, when this deployment issues tokens.
+    ///
+    /// Either a JSON object with an `apiKey` field — what `cmdc login` writes — or
+    /// a file whose whole content is the key. Read at startup and on change, never
+    /// written to, so the key is not copied into this configuration, into a printed
+    /// configuration, or into a log line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_file: Option<PathBuf>,
+    /// Where issued tokens are recorded.
+    ///
+    /// Tokens arrive hashed, so this file is not a credential store: it can be
+    /// read, backed up and diffed without handing anyone the ability to spend the
+    /// account. `--token-new` writes it, the serving process reads it, and a
+    /// change to it is picked up without a restart.
+    pub tokens_file: PathBuf,
+}
+
+impl Default for AccessConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            key_file: None,
+            tokens_file: PathBuf::from("var/tokens.json"),
+        }
     }
 }
 

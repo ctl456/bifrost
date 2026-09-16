@@ -71,6 +71,14 @@ fn main() -> ExitCode {
         Command::Verify { config, digest, quote } => {
             verified(cli::verify(config.as_deref(), &digest, quote.as_deref()))
         }
+        Command::TokenNew {
+            config,
+            name,
+            rpm,
+            concurrency,
+        } => report(cli::token_new(config.as_deref(), &name, rpm, concurrency)),
+        Command::TokenList { config } => lines(cli::token_list(config.as_deref())),
+        Command::TokenRevoke { config, name } => report(cli::token_revoke(config.as_deref(), &name)),
         Command::Serve { config } => serve(config.as_deref()),
     }
 }

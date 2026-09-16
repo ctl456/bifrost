@@ -136,9 +136,12 @@ dependencies = [
  "bifrost-protocol",
  "bifrost-wire",
  "futures-util",
+ "getrandom 0.4.3",
+ "hex",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "time",
  "tokio",
 ]

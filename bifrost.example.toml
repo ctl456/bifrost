@@ -81,6 +81,32 @@ timeout_ms = 10000
 # "claude-" = "deepseek/deepseek-v4-flash"
 # "claude-sonnet-5" = "deepseek/deepseek-v4-pro"
 
+[access]
+# Who may use this deployment, and which key it uses on their behalf.
+#
+# Off means what every earlier build did: each client sends a key of its own and this
+# process forwards it, so a deployment that is only ever your own machine needs
+# nothing here. On means the opposite trade — the key lives on this machine and
+# nowhere else, every caller is handed a token instead, and a token can be limited or
+# revoked without touching anyone else's. That is what makes the deployment
+# something to hand out rather than a key handed out with it.
+#
+# The two are exclusive rather than layered: a deployment that issues tokens refuses
+# a `user_…` key, because a key that still worked would be one no revocation reaches.
+enabled = false
+# The file the upstream key is read from. Either the JSON `cmdc login` writes (an
+# object with an `apiKey` field) or a file whose whole content is the key. Read at
+# startup and on change, never written to: the key is not copied into this file,
+# into what --print-config prints, or into a log line. Required when enabled is
+# true, because a deployment that issues tokens has to know what to serve with.
+# key_file = "/home/you/.commandcode/auth.json"
+# Where issued tokens are recorded. The file holds the sha256 of each token rather
+# than the token, so it can be read, copied and backed up without handing anyone the
+# ability to spend the account; --token-new prints a token once, at the moment it is
+# issued. The serving process re-reads it when it changes, so issuing and revoking
+# are something done to a running deployment.
+tokens_file = "var/tokens.json"
+
 [mechanisms]
 # Report this deployment's derived device identity to the upstream. The identity
 # is a deterministic function of the key whether or not this is on; what this

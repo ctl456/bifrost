@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::evidence::{CAPTURE_CAP, Captured, Evidence, TurnContext};
-use crate::state::{Edge, InflightPermit};
+use crate::state::{Edge, Slots};
 use crate::upstream::LineBuffer;
 use axum::body::{Body, Bytes};
 use bifrost_core::{ChunkGenerator, Error, OutputAccumulator, OutputChunk};
@@ -635,16 +635,17 @@ fn encode(frames: &[SseFrame]) -> Bytes {
 
 /// The response body of a committed stream.
 ///
-/// The admission permit is carried inside the stream state rather than held by
-/// the handler: a streaming response outlives the handler that produced it, and
-/// a slot released at return time would let an unlimited number of streams run
-/// while the counter reported an empty house.
-pub fn into_body(session: Box<Session>, permit: Option<InflightPermit>) -> Body {
-    let stream = futures_util::stream::unfold((session, permit), |(mut session, permit)| async move {
+/// What the turn is holding is carried inside the stream state rather than held by
+/// the handler: a streaming response outlives the handler that produced it, and a
+/// slot released at return time would let an unlimited number of streams run while
+/// the counter reported an empty house. Both places travel, because the same is
+/// true of a token's own ceiling.
+pub fn into_body(session: Box<Session>, slots: Slots) -> Body {
+    let stream = futures_util::stream::unfold((session, slots), |(mut session, slots)| async move {
         session
             .next_batch()
             .await
-            .map(|bytes| (Ok::<Bytes, Infallible>(bytes), (session, permit)))
+            .map(|bytes| (Ok::<Bytes, Infallible>(bytes), (session, slots)))
     });
     Body::from_stream(stream)
 }

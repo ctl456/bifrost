@@ -71,6 +71,19 @@ pub enum Command {
         /// Also check that the stored bytes contain this text.
         quote: Option<String>,
     },
+    /// Issue a token, print it once, and exit.
+    TokenNew {
+        config: Option<PathBuf>,
+        name: String,
+        /// Requests per minute; 0 is no limit.
+        rpm: u32,
+        /// Turns at once; 0 is no limit.
+        concurrency: u32,
+    },
+    /// List the tokens this deployment has issued, and exit.
+    TokenList { config: Option<PathBuf> },
+    /// Take a token away, and exit.
+    TokenRevoke { config: Option<PathBuf>, name: String },
     /// Print how to use this, and exit.
     Help,
 }
@@ -85,7 +98,8 @@ pub const NOT_ARCHIVED: u8 = 3;
 /// How to use this.
 pub const USAGE: &str = "\
 usage: bifrost [--check | --print-config | --journal | --audit | --turn [DIGEST] |
-                --verify DIGEST] [--config PATH]
+                --verify DIGEST | --token-new NAME | --token-list |
+                --token-revoke NAME] [--config PATH]
 
   (no arguments)  serve: run the gateway
   --check         validate the configuration and exit. A unit file runs this first,
@@ -128,6 +142,24 @@ usage: bifrost [--check | --print-config | --journal | --audit | --turn [DIGEST]
                   them, 3 when nothing is archived under it - which is what a pass of
                   retention leaves behind, and is not the same as a false claim
     --quote TEXT  also check that the stored bytes contain this text
+  --token-new NAME
+                  issue a token for the caller NAME and print it, once. The file
+                  keeps its sha256, so a lost token is replaced rather than found,
+                  and a revoked one is refused from the next request on. Only a
+                  deployment with access.enabled issues tokens: a token nothing
+                  checks is a credential that does not exist
+    --rpm N       at most N requests a minute for that token, refilled
+                  continuously. 0, the default, is no limit
+    --concurrency N
+                  at most N requests at once for that token. 0, the default, is no
+                  limit. This is what keeps one caller from filling the deployment's
+                  own ceiling and leaving the others queued
+  --token-list    print the tokens issued, one line each, oldest name first. No line
+                  holds a token: the file has none to print
+  --token-revoke NAME
+                  take a token away. The name stays taken and the record stays in
+                  the file, so that a name seen in an access line can be told from
+                  one that was never issued
   --config PATH   read this file instead of $BIFROST_CONFIG or ./bifrost.toml
   -h, --help      print this";
 
@@ -142,6 +174,9 @@ enum Mode {
     Audit,
     Turn,
     Verify,
+    TokenNew,
+    TokenList,
+    TokenRevoke,
     Help,
 }
 
@@ -160,6 +195,9 @@ impl Command {
         let mut session: Option<String> = None;
         let mut limit: Option<usize> = None;
         let mut quote: Option<String> = None;
+        let mut name: Option<String> = None;
+        let mut rpm: Option<u32> = None;
+        let mut concurrency: Option<u32> = None;
         let mut args = args.into_iter().peekable();
         while let Some(argument) = args.next() {
             match argument.as_str() {
@@ -208,6 +246,31 @@ impl Command {
                 "--quote" => {
                     quote = Some(args.next().ok_or_else(|| usage_error("--quote needs text"))?);
                 }
+                "--token-new" => {
+                    mode = choose(mode, Mode::TokenNew)?;
+                    name = Some(args.next().ok_or_else(|| usage_error("--token-new needs a name"))?);
+                }
+                "--token-list" => mode = choose(mode, Mode::TokenList)?,
+                "--token-revoke" => {
+                    mode = choose(mode, Mode::TokenRevoke)?;
+                    name = Some(args.next().ok_or_else(|| usage_error("--token-revoke needs a name"))?);
+                }
+                "--rpm" => {
+                    let value = args.next().ok_or_else(|| usage_error("--rpm needs a number"))?;
+                    rpm = Some(
+                        value
+                            .parse()
+                            .map_err(|_| usage_error(&format!("--rpm needs a number, got `{value}`")))?,
+                    );
+                }
+                "--concurrency" => {
+                    let value = args.next().ok_or_else(|| usage_error("--concurrency needs a number"))?;
+                    concurrency = Some(
+                        value
+                            .parse()
+                            .map_err(|_| usage_error(&format!("--concurrency needs a number, got `{value}`")))?,
+                    );
+                }
                 "-h" | "--help" => mode = Mode::Help,
                 other => return Err(usage_error(&format!("unknown argument `{other}`"))),
             }
@@ -238,6 +301,14 @@ impl Command {
         }
         if quote.is_some() && mode != Mode::Verify {
             return Err(usage_error("--quote only means something with --verify"));
+        }
+        // A limit belongs to the token it is set on, so it is only something to say
+        // while issuing one: a `--rpm` that quietly changed nothing would be read as
+        // having been applied to something.
+        if (rpm.is_some() || concurrency.is_some()) && mode != Mode::TokenNew {
+            return Err(usage_error(
+                "--rpm and --concurrency only mean something with --token-new",
+            ));
         }
         Ok(match mode {
             Mode::Serve => Command::Serve { config },
@@ -273,6 +344,17 @@ impl Command {
                 digest: digest.ok_or_else(|| usage_error("--verify needs a digest"))?,
                 quote,
             },
+            Mode::TokenNew => Command::TokenNew {
+                config,
+                name: name.ok_or_else(|| usage_error("--token-new needs a name"))?,
+                rpm: rpm.unwrap_or(0),
+                concurrency: concurrency.unwrap_or(0),
+            },
+            Mode::TokenList => Command::TokenList { config },
+            Mode::TokenRevoke => Command::TokenRevoke {
+                config,
+                name: name.ok_or_else(|| usage_error("--token-revoke needs a name"))?,
+            },
             Mode::Help => Command::Help,
         })
     }
@@ -287,16 +369,143 @@ impl Command {
             | Command::Journal { config, .. }
             | Command::Audit { config, .. }
             | Command::Turn { config, .. }
-            | Command::Verify { config, .. } => config.as_deref(),
+            | Command::Verify { config, .. }
+            | Command::TokenNew { config, .. }
+            | Command::TokenList { config }
+            | Command::TokenRevoke { config, .. } => config.as_deref(),
             Command::Help => None,
         }
     }
 }
 
 /// Answer whether the configuration is one this process can start with.
+///
+/// A deployment that issues tokens has two things that can be wrong before the
+/// first request — a key file that cannot be read and a token file that cannot be
+/// parsed — and both are read here for that reason. The unit runs this before it
+/// starts anything, so a mistake fails the unit instead of every request that
+/// depends on it.
 pub fn check(path: Option<&Path>) -> Result<String, String> {
     let config = load(path)?;
-    Ok(describe(&config))
+    let mut answer = describe(&config);
+    if config.access.enabled {
+        answer.push('\n');
+        answer.push_str(&access_report(&config)?);
+    }
+    Ok(answer)
+}
+
+/// What a deployment that issues tokens would start with.
+fn access_report(config: &Config) -> Result<String, String> {
+    let key_file = config
+        .access
+        .key_file
+        .as_ref()
+        .ok_or("access.key_file is required when access.enabled is true")?;
+    let key = crate::access::read_key(key_file)?;
+    let document = crate::access::Document::read(&config.access.tokens_file)?;
+    let revoked = document.tokens.iter().filter(|token| token.revoked).count();
+    let in_force = document.tokens.len() - revoked;
+    let mut report = if document.tokens.is_empty() {
+        format!(
+            "access: no token issued yet, so every request will be refused; --token-new issues one into {}",
+            config.access.tokens_file.display()
+        )
+    } else {
+        format!(
+            "access: {in_force} token(s) in force, {revoked} revoked, in {}",
+            config.access.tokens_file.display()
+        )
+    };
+    report.push_str(&format!("; key read from {}", key_file.display()));
+    // Said rather than refused: the shape belongs to the upstream's client, and a
+    // deployment whose key does not look like one may still be a deployment that
+    // works — but an operator who pointed the setting at the wrong file wants to
+    // hear about it now rather than from a wall of 401s.
+    if crate::access::key_looks_unusual(&key) {
+        report.push_str("\nwarning: that key does not begin with `user_`, which is the shape the upstream issues");
+    }
+    Ok(report)
+}
+
+/// Issue a token and answer with it, once.
+///
+/// The token is printed rather than stored: what the file keeps is its sha256, so
+/// the moment it is issued is the only moment it can be read. A deployment that does
+/// not issue tokens refuses to issue one — a token nothing checks is a credential
+/// that does not exist, and an operator who made one would believe otherwise.
+pub fn token_new(path: Option<&Path>, name: &str, rpm: u32, concurrency: u32) -> Result<String, String> {
+    let config = load(path)?;
+    if !config.access.enabled {
+        return Err(
+            "access.enabled is false, so this deployment forwards its callers' keys rather than issuing tokens; set it to true to issue one"
+                .to_owned(),
+        );
+    }
+    let mut document = crate::access::Document::read(&config.access.tokens_file)?;
+    let token = document.issue(name, rpm, concurrency)?;
+    document.write(&config.access.tokens_file)?;
+    Ok(format!(
+        "token `{name}` issued: {token}\nlimits: {}\nstored hashed in {}; shown here once, and a running deployment picks it up without a restart",
+        limits(rpm, concurrency),
+        config.access.tokens_file.display()
+    ))
+}
+
+/// What this deployment has issued, one line per token.
+pub fn token_list(path: Option<&Path>) -> Result<String, String> {
+    let config = load(path)?;
+    let document = crate::access::Document::read(&config.access.tokens_file)?;
+    let mut text = format!(
+        "tokens {} in {}\n",
+        document.tokens.len(),
+        config.access.tokens_file.display()
+    );
+    for token in &document.tokens {
+        text.push_str(&format!(
+            "{} rpm={} concurrency={} created={} revoked={}\n",
+            token.name,
+            token.rpm,
+            token.concurrency,
+            stamp_of(token.created_at),
+            if token.revoked { "yes" } else { "no" }
+        ));
+    }
+    Ok(text)
+}
+
+/// Take a token away.
+pub fn token_revoke(path: Option<&Path>, name: &str) -> Result<String, String> {
+    let config = load(path)?;
+    let mut document = crate::access::Document::read(&config.access.tokens_file)?;
+    document.revoke(name)?;
+    document.write(&config.access.tokens_file)?;
+    Ok(format!(
+        "token `{name}` revoked: a running deployment refuses it from the next request on"
+    ))
+}
+
+/// How a token's limits read to a person.
+fn limits(rpm: u32, concurrency: u32) -> String {
+    let rate = if rpm == 0 {
+        "no limit on requests per minute".to_owned()
+    } else {
+        format!("{rpm} requests per minute")
+    };
+    let at_once = if concurrency == 0 {
+        "no limit on requests at once".to_owned()
+    } else {
+        format!("{concurrency} requests at once")
+    };
+    format!("{rate}, {at_once}")
+}
+
+/// A unix timestamp as the RFC 3339 an operator reads.
+fn stamp_of(seconds: i64) -> String {
+    OffsetDateTime::from_unix_timestamp(seconds)
+        .ok()
+        .and_then(|at| at.format(&Rfc3339).ok())
+        .unwrap_or_else(|| seconds.to_string())
 }
 
 /// The resolved configuration, as TOML with its secrets replaced.

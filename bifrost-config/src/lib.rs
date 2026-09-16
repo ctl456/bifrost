@@ -11,8 +11,8 @@ mod model;
 
 pub use env::apply_env;
 pub use model::{
-    AdapterId, AuditConfig, CONFIG_VERSION, Config, DeviceConfig, FingerprintConfig, LimitsConfig, LogFormat, LogLevel,
-    MechanismsConfig, ModelsConfig, TelemetryConfig, WireConfig,
+    AccessConfig, AdapterId, AuditConfig, CONFIG_VERSION, Config, DeviceConfig, FingerprintConfig, LimitsConfig,
+    LogFormat, LogLevel, MechanismsConfig, ModelsConfig, TelemetryConfig, WireConfig,
 };
 
 use std::path::{Path, PathBuf};
@@ -156,6 +156,30 @@ impl Config {
                     "models.aliases entry {pattern:?} must name a model"
                 )));
             }
+        }
+        // A deployment that issues tokens needs a key to issue them against, and a
+        // path to record them in. The first is refused here rather than at startup
+        // for the same reason the rest of this function exists: a configuration
+        // that cannot serve should fail the unit that runs `--check`, not the
+        // first request that arrives.
+        if self.access.enabled && self.access.key_file.is_none() {
+            return Err(ConfigError::Invalid(
+                "access.key_file is required when access.enabled is true; it is the file the upstream key is read from"
+                    .to_owned(),
+            ));
+        }
+        if self
+            .access
+            .key_file
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
+            return Err(ConfigError::Invalid(
+                "access.key_file must not be empty when it is set".to_owned(),
+            ));
+        }
+        if self.access.tokens_file.as_os_str().is_empty() {
+            return Err(ConfigError::Invalid("access.tokens_file must not be empty".to_owned()));
         }
         // The upper bounds are typos caught early rather than policy: a retention
         // longer than ten years is a mistyped digit, and so is a ceiling of a

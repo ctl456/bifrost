@@ -11,20 +11,36 @@ use axum::http::HeaderMap;
 /// The prefix every key carries.
 const KEY_PREFIX: &str = "user_";
 
+/// The credential a client sent, whole, in whichever of the two styles.
+///
+/// [`api_key`] scans a credential for the shape of a key, which is what
+/// forwarding a client's own key needs. A deployment that issues tokens needs the
+/// other thing: the value the client sent, compared against what it issued.
+#[must_use]
+pub fn credential(headers: &HeaderMap) -> Option<&str> {
+    bearer(headers).or_else(|| x_api_key(headers))
+}
+
+fn bearer(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+}
+
+fn x_api_key(headers: &HeaderMap) -> Option<&str> {
+    headers.get("x-api-key").and_then(|value| value.to_str().ok())
+}
+
 /// Extract the API key, if the client sent one that is shaped like a key.
 #[must_use]
 pub fn api_key(headers: &HeaderMap) -> Option<String> {
-    if let Some(authorization) = headers.get(axum::http::header::AUTHORIZATION)
-        && let Ok(value) = authorization.to_str()
-        && let Some(rest) = value.strip_prefix("Bearer ")
+    if let Some(rest) = bearer(headers)
         && let Some(key) = scan(rest)
     {
         return Some(key);
     }
-    headers
-        .get("x-api-key")
-        .and_then(|value| value.to_str().ok())
-        .and_then(scan)
+    x_api_key(headers).and_then(scan)
 }
 
 /// The first `user_…` token in `text`.

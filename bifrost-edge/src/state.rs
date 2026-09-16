@@ -11,6 +11,7 @@ use bifrost_fingerprint::DeviceProfile;
 use bifrost_protocol::adapter::{ConvertOptions, ProtocolAdapter, registry};
 use bifrost_wire::{Entropy, SystemEntropy, WireAdapter, WireContext, adapter_for, uuid_v4};
 
+use crate::access::{Access, Permit, TokenUsage};
 use crate::evidence::Evidence;
 use crate::lifecycle::Schedule;
 use crate::models::Catalog;
@@ -62,6 +63,20 @@ pub struct Edge {
     schedule: Schedule,
     /// The model catalogue, and when the copy of it was fetched.
     catalog: Catalog,
+    /// The tokens this deployment issues, when it issues them.
+    access: Option<Arc<Access>>,
+}
+
+/// The places one turn holds while it runs, and gives back when it is over.
+///
+/// Two, because they answer different questions: the deployment's ceiling is about
+/// this process, and a token's is about one caller. They travel together because a
+/// stream outlives the handler that opened it — the answer is still being written
+/// when the request has already become a response — so whatever the turn is
+/// holding has to be held by the stream.
+pub struct Slots {
+    pub global: Option<InflightPermit>,
+    pub token: Option<Permit>,
 }
 
 impl Edge {
@@ -92,6 +107,16 @@ impl Edge {
                 config.audit.journal_dir.clone(),
             ))
         });
+
+        // Opened before anything is served, so a key file that cannot be read or a
+        // token file that cannot be parsed fails the start rather than the first
+        // request that depends on it.
+        let access = config
+            .access
+            .enabled
+            .then(|| Access::open(&config.access))
+            .transpose()
+            .map_err(|error| format!("access: {error}"))?;
 
         // One profile, built once: the fingerprint, the envelope's environment and
         // working directory, the project slug and the lifecycle metadata are all
@@ -125,6 +150,7 @@ impl Edge {
             evidence,
             schedule: Schedule::new(),
             catalog: Catalog::new(),
+            access,
         }))
     }
 
@@ -298,6 +324,13 @@ impl Edge {
         Some(InflightPermit(Arc::clone(self)))
     }
 
+    /// The tokens this deployment issues, when it issues them rather than
+    /// forwarding the key every client brought.
+    #[must_use]
+    pub fn access(&self) -> Option<&Arc<Access>> {
+        self.access.as_ref()
+    }
+
     #[must_use]
     pub fn inflight(&self) -> usize {
         self.inflight.load(Ordering::Acquire)
@@ -382,6 +415,7 @@ impl Edge {
             upstream_failed: counters.upstream_failed.load(Ordering::Relaxed),
             timeouts: counters.timeouts.load(Ordering::Relaxed),
             client_stalls: counters.client_stalls.load(Ordering::Relaxed),
+            tokens: self.access.as_ref().map_or_else(Vec::new, |access| access.usage()),
         }
     }
 
@@ -422,7 +456,7 @@ struct Counters {
 /// Every field is a count of one decision, so a reader can tell a deployment that
 /// is being asked for nothing from one that is failing at everything, and can tell
 /// a client sending broken requests from an upstream that stopped answering.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Status {
     /// How long this process has been running.
     pub uptime_ms: u64,
@@ -446,6 +480,11 @@ pub struct Status {
     pub timeouts: u64,
     /// Streams cut because the client stopped reading them.
     pub client_stalls: u64,
+    /// What each issued token has been used for. Empty unless this deployment
+    /// issues tokens: a name is not a credential, and it is the one thing an
+    /// operator needs that the counts above cannot answer — which caller is the
+    /// one filling the ceiling.
+    pub tokens: Vec<TokenUsage>,
 }
 
 /// How many consecutive timeouts pass before the client is told to shorten the

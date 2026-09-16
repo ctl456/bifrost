@@ -17,11 +17,12 @@ use bifrost_protocol::adapter::{ProtocolAdapter, ResponseMeta};
 use futures_util::StreamExt;
 use serde_json::json;
 
+use crate::access::Caller;
 use crate::error::{self, Shape};
 use crate::evidence::{self, Captured, Evidence, TurnContext};
 use crate::lifecycle;
 use crate::log;
-use crate::state::{Edge, InflightPermit, empty_output_error, idle_timeout_error, is_idle_timeout, now_unix};
+use crate::state::{Edge, InflightPermit, Slots, empty_output_error, idle_timeout_error, is_idle_timeout, now_unix};
 use crate::stream::{self, Capture, Opening, Stall, StreamPlan};
 use crate::upstream;
 
@@ -184,6 +185,7 @@ async fn status(State(edge): State<Arc<Edge>>) -> Response {
             "upstream_failed": status.upstream_failed,
             "timeouts": status.timeouts,
             "client_stalls": status.client_stalls,
+            "tokens": status.tokens,
         }),
     )
 }
@@ -243,22 +245,11 @@ async fn serve_turn(
         }
     };
 
-    // The key is checked after the body, so a malformed request is reported as
-    // malformed rather than as unauthenticated — a client sent to fix its
-    // credentials would never learn that its JSON was broken.
-    let Some(api_key) = crate::auth::api_key(&headers) else {
-        // Only the *choice* between the two errors needs the body parsed here.
-        // When a key was sent, the adapter parses it anyway and reports the same
-        // 400 for a body that is not JSON, so the normal path pays nothing.
-        if serde_json::from_slice::<serde_json::Value>(&payload).is_err() {
-            edge.note_malformed();
-            return error_response(protocol.shape, &Error::invalid_request("Invalid JSON body"));
-        }
-        edge.note_unauthenticated();
-        return error_response(
-            protocol.shape,
-            &Error::authentication("Missing API key. Send in Authorization: Bearer <key> or x-api-key header"),
-        );
+    // The refusal is a whole response, which is several times the size of the caller
+    // that was being looked up, so it travels boxed rather than by value.
+    let mut caller = match caller_for(&edge, protocol, &headers, &payload) {
+        Ok(caller) => caller,
+        Err(refusal) => return *refusal,
     };
 
     let decoded = match adapter.decode_request(&payload, &edge.convert_options()) {
@@ -288,8 +279,9 @@ async fn serve_turn(
         );
     };
 
-    detail.key_fingerprint = Some(evidence::key_fingerprint(&api_key));
-    let session = edge.session_for(&api_key, &headers, request.prompt_cache_key.as_deref());
+    detail.key_fingerprint = Some(evidence::key_fingerprint(caller.key()));
+    detail.token = caller.token().map(str::to_owned);
+    let session = edge.session_for(caller.identity(), &headers, request.prompt_cache_key.as_deref());
 
     // Archiving starts only once the key has checked out: the archive is disk, and
     // a disk an unauthenticated caller can fill is a filling primitive rather than
@@ -300,17 +292,17 @@ async fn serve_turn(
             protocol: protocol.adapter.to_owned(),
             model: model_for(adapter, &request),
             session: session.clone(),
-            key_fingerprint: evidence::key_fingerprint(&api_key),
+            key_fingerprint: evidence::key_fingerprint(caller.key()),
         },
         request: evidence::or_warn(evidence.archive_request(&payload), "the client request"),
     });
 
-    let context = edge.wire_context(&api_key, &session);
+    let context = edge.wire_context(caller.key(), &session);
     // The upstream is told which device this key is on, and that a session
     // exists, before it is asked to generate: the record is what makes the
     // identity observable, and the first turn of a window is the one that pays
     // for it. Nothing about it can fail the turn.
-    lifecycle::announce(&edge, &api_key, &context).await;
+    lifecycle::announce(&edge, caller.key(), &context).await;
 
     let encoded = match edge.encode(&request, &context) {
         Ok(encoded) => encoded,
@@ -347,10 +339,73 @@ async fn serve_turn(
         }
     };
 
+    // Both places this turn holds travel together from here, because a stream
+    // outlives the handler that opened it: the answer is still being written when
+    // the request has already become a response, so what the turn is holding has to
+    // be held by the stream.
+    let slots = Slots {
+        global: admission,
+        token: caller.take_slot(),
+    };
+
     if !request.stream {
         return complete(adapter, protocol, &edge, &request, response, audit).await;
     }
-    streaming(adapter, protocol, &edge, &request, response, admission, audit).await
+    streaming(adapter, protocol, &edge, &request, response, slots, audit).await
+}
+
+/// Work out who is asking, or the refusal to send back.
+///
+/// The credential is checked after the body, so a malformed request is reported as
+/// malformed rather than as unauthenticated — a client sent to fix its credentials
+/// would never learn that its JSON was broken.
+fn caller_for(
+    edge: &Arc<Edge>,
+    protocol: &Protocol,
+    headers: &HeaderMap,
+    payload: &[u8],
+) -> Result<Caller, Box<Response>> {
+    let Some(presented) = crate::auth::credential(headers) else {
+        return Err(Box::new(unidentified(edge, protocol, payload)));
+    };
+    match edge.access() {
+        // A deployment that issues tokens reads the credential whole rather than
+        // scanning it for the shape of a key: what a caller carries is the token,
+        // and a key that still worked would be a key no revocation reaches.
+        Some(access) => match access.caller(presented) {
+            Ok(caller) => Ok(caller),
+            Err(error) => {
+                edge.note_unauthenticated();
+                Err(Box::new(error_response(protocol.shape, &error)))
+            }
+        },
+        None => match crate::auth::api_key(headers) {
+            Some(key) => Ok(Caller::passthrough(key)),
+            // A credential that is not one of this deployment's keys is refused
+            // the same way as no credential at all, which is what the original
+            // does: it scans for the shape of a key and finds none.
+            None => Err(Box::new(unidentified(edge, protocol, payload))),
+        },
+    }
+}
+
+/// The refusal for a request that arrived without a usable credential.
+///
+/// The body is parsed here and only here, to choose between the two errors: when a
+/// credential was recognised, the adapter parses the body anyway and reports the
+/// same 400 for one that is not JSON, so the normal path pays nothing for this.
+fn unidentified(edge: &Arc<Edge>, protocol: &Protocol, payload: &[u8]) -> Response {
+    if serde_json::from_slice::<serde_json::Value>(payload).is_err() {
+        edge.note_malformed();
+        return error_response(protocol.shape, &Error::invalid_request("Invalid JSON body"));
+    }
+    edge.note_unauthenticated();
+    let message = if edge.access().is_some() {
+        "Missing API key. Send the token this deployment issued you in Authorization: Bearer <token> or x-api-key header"
+    } else {
+        "Missing API key. Send in Authorization: Bearer <key> or x-api-key header"
+    };
+    error_response(protocol.shape, &Error::authentication(message))
 }
 
 /// A non-streaming answer.
@@ -418,7 +473,7 @@ async fn streaming(
     edge: &Arc<Edge>,
     request: &bifrost_core::CanonicalRequest,
     response: reqwest::Response,
-    admission: Option<InflightPermit>,
+    slots: Slots,
     audit: Option<Audit>,
 ) -> Response {
     let model = model_for(adapter, request);
@@ -461,7 +516,7 @@ async fn streaming(
             // failure, and the client is told about it in the stream's own words.
             edge.note_success();
             session.prime(&frames);
-            let mut response = Response::new(stream::into_body(session, admission));
+            let mut response = Response::new(stream::into_body(session, slots));
             *response.status_mut() = StatusCode::OK;
             *response.headers_mut() = stream::headers();
             response
@@ -553,7 +608,16 @@ fn identifier(adapter: &str) -> String {
 /// Which models to offer comes from [`crate::models`]: the upstream's own list
 /// when it can be had, and a table compiled into this build when it cannot.
 async fn models(State(edge): State<Arc<Edge>>, headers: HeaderMap) -> Response {
-    let ids = crate::models::catalog(&edge, crate::auth::api_key(&headers).as_deref()).await;
+    // A catalogue is the deployment's own question rather than a caller's, so a
+    // deployment that issues tokens asks it with the key it holds: an anonymous
+    // `GET /v1/models` names the models this account has, which is what the endpoint
+    // is for, and the fetch behind it is cached and shared, so it costs one call
+    // between every caller rather than one each.
+    let key = match edge.access() {
+        Some(access) => Some(access.key().to_owned()),
+        None => crate::auth::api_key(&headers),
+    };
+    let ids = crate::models::catalog(&edge, key.as_deref()).await;
     let now = now_unix();
     let data: Vec<serde_json::Value> = ids
         .iter()

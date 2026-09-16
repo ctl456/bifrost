@@ -43,6 +43,9 @@ fn defaults_match_the_documented_values() {
     assert_eq!(config.models.refresh_ms, 300_000);
     assert_eq!(config.models.timeout_ms, 10_000);
     assert!(config.models.aliases.is_empty(), "no rules means no rewriting");
+    assert!(!config.access.enabled, "the key is forwarded unless asked otherwise");
+    assert_eq!(config.access.key_file, None);
+    assert_eq!(config.access.tokens_file, PathBuf::from("var/tokens.json"));
     assert_eq!(config.telemetry.log_level, LogLevel::Info);
     assert_eq!(config.telemetry.log_format, LogFormat::Json);
     config.validate().expect("defaults are valid");
@@ -434,4 +437,51 @@ fn every_secret_in_a_printed_configuration_is_replaced() {
     let printed = config.to_toml_redacted().expect("renders");
     assert!(!printed.contains("rotates-every-identity"), "{printed}");
     assert!(printed.contains(&format!("salt = \"{REDACTED}\"")), "{printed}");
+}
+/// A deployment that issues tokens has to say where the key comes from: with the
+/// switch on and no file, the process would start and refuse every request, which
+/// is a mistake worth failing on rather than serving through.
+#[test]
+fn issuing_tokens_without_a_key_file_is_rejected() {
+    let error = Config::from_toml_str("[access]\nenabled = true\n").expect_err("no key file");
+    match error {
+        ConfigError::Invalid(message) => assert!(message.contains("access.key_file is required"), "{message}"),
+        other => panic!("expected Invalid, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_access_section_round_trips_through_a_printed_configuration() {
+    let text =
+        "[access]\nenabled = true\nkey_file = \"/run/secrets/commandcode.json\"\ntokens_file = \"var/tokens.json\"\n";
+    let config = Config::from_toml_str(text).expect("parses");
+    assert!(config.access.enabled);
+    assert_eq!(
+        config.access.key_file,
+        Some(PathBuf::from("/run/secrets/commandcode.json"))
+    );
+
+    let printed = config.to_toml_redacted().expect("prints");
+    let back = Config::from_toml_str(&printed).expect("what is printed is a configuration");
+    assert_eq!(back.access, config.access);
+    // The key is named by path rather than held, so there is no secret in this
+    // section for the redaction to reach — and the path has to survive, because it
+    // is what the deployment opens.
+    assert!(printed.contains("/run/secrets/commandcode.json"));
+}
+
+#[test]
+fn an_access_section_with_an_empty_path_is_rejected() {
+    for text in [
+        "[access]\nenabled = true\nkey_file = \"\"\n",
+        "[access]\ntokens_file = \"\"\n",
+    ] {
+        assert!(Config::from_toml_str(text).is_err(), "{text:?} names no file");
+    }
+}
+
+#[test]
+fn an_unknown_key_in_the_access_section_is_rejected() {
+    let error = Config::from_toml_str("[access]\nenabled = true\nkeyfile = \"x\"\n").expect_err("typo");
+    assert!(matches!(error, ConfigError::Parse { .. }), "got {error:?}");
 }
