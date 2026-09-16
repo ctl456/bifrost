@@ -401,6 +401,23 @@ impl Access {
         self.tokens.lock().expect("tokens poisoned").len()
     }
 
+    /// Whether a presented credential is one of this deployment's live tokens.
+    ///
+    /// This is what the surfaces that answer without serving a turn ask, and it is
+    /// deliberately not [`Access::caller`]: that one reserves a turn's place and
+    /// spends one request of the token's minute, so a page that was read with it
+    /// would rate-limit a monitoring loop out of reading the page.
+    #[must_use]
+    pub fn holds(&self, presented: Option<&str>) -> bool {
+        let Some(presented) = presented else {
+            return false;
+        };
+        self.reload_if_changed();
+        let digest = digest_of(presented.trim());
+        let tokens = self.tokens.lock().expect("tokens poisoned");
+        matched(&tokens, &digest).is_some()
+    }
+
     /// Authenticate a presented token and reserve this turn's place.
     ///
     /// The reservation is what enforces the per-token ceiling, and it is returned
@@ -411,22 +428,9 @@ impl Access {
         let digest = digest_of(presented.trim());
         let mut tokens = self.tokens.lock().expect("tokens poisoned");
 
-        // Every entry is compared, rather than stopping at the match: a loop that
-        // exits early answers faster for the token it finds first, and the cost of
-        // not leaking that is one comparison per token issued.
-        let mut found: Option<String> = None;
-        for (name, held) in tokens.iter() {
-            if held.revoked {
-                continue;
-            }
-            if constant_time_eq(&held.hash, &digest) && found.is_none() {
-                found = Some(name.clone());
-            }
-        }
-
         // One message for both a token that was never issued and one that was
         // taken away: whether a name existed is not a stranger's to learn.
-        let name = found.ok_or_else(|| {
+        let name = matched(&tokens, &digest).ok_or_else(|| {
             Error::authentication(
                 "This deployment issues its own tokens; send one in Authorization: Bearer <token> or x-api-key, or ask its operator for one",
             )
@@ -618,6 +622,24 @@ impl Drop for Permit {
     }
 }
 
+/// The name of the live token a digest belongs to, if it belongs to one.
+///
+/// Every entry is compared, rather than stopping at the match: a loop that exits
+/// early answers faster for the token it finds first, and the cost of not leaking
+/// that is one comparison per token issued.
+fn matched(tokens: &HashMap<String, Held>, digest: &[u8; 32]) -> Option<String> {
+    let mut found: Option<String> = None;
+    for (name, held) in tokens {
+        if held.revoked {
+            continue;
+        }
+        if constant_time_eq(&held.hash, digest) && found.is_none() {
+            found = Some(name.clone());
+        }
+    }
+    found
+}
+
 /// Whether two digests are equal, without answering early.
 fn constant_time_eq(left: &[u8; 32], right: &[u8; 32]) -> bool {
     let mut difference = 0u8;
@@ -680,6 +702,36 @@ mod tests {
             key_file: Some(key_file),
             tokens_file: root.join("tokens.json"),
         }
+    }
+
+    /// The check the surfaces that serve no turn use. It answers the same question
+    /// as authenticating, and spends nothing: a page read is not a request of the
+    /// token's minute, or a monitoring loop would rate-limit itself out of reading
+    /// the page it watches.
+    #[test]
+    fn holds_recognises_a_live_token_and_spends_none_of_it() {
+        let root = scratch("holds");
+        let config = config(&root);
+        let mut document = Document::default();
+        let token = document.issue("laptop", 1, 0).expect("issue");
+        let revoked = document.issue("phone", 0, 0).expect("issue");
+        document.revoke("phone").expect("revoke");
+        document.write(&config.tokens_file).expect("write");
+
+        let access = Access::open(&config).expect("open");
+        assert!(access.holds(Some(&token)), "an issued token is a credential");
+        assert!(!access.holds(Some(&revoked)), "a revoked one is not");
+        assert!(!access.holds(Some("bfr_0000")), "nor is one never issued");
+        assert!(!access.holds(None), "nor is an absent one");
+
+        // A token with a minute of one request still has it: reading a page is not
+        // a request, and four reads leave the turn that follows admissible.
+        for _ in 0..4 {
+            assert!(access.holds(Some(&token)));
+        }
+        assert!(access.caller(&token).is_ok(), "the minute was not spent by reading");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

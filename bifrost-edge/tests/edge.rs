@@ -162,16 +162,29 @@ fn client() -> reqwest::Client {
 
 /// Read `/status`, which every count assertion starts from.
 ///
-/// The route is unauthenticated, so this sends no key: a request that had to be
-/// authenticated to read a count would make the count useless in exactly the case
-/// it exists for — a deployment whose keys are not working.
-async fn status_of(edge: &str) -> Value {
-    let response = client().get(format!("{edge}/status")).send().await.expect("send");
-    assert_eq!(response.status(), 200, "the counts are readable without a key");
+/// With the credential a turn would use where tokens are issued, and with none where
+/// the key is forwarded: the body names callers exactly where there are tokens to
+/// name, and a page that names callers is not one to hand to whatever can reach the
+/// port. The argument the other shape made still holds where it applied — a count
+/// you must authenticate to read is useless in the case it exists for, a deployment
+/// whose credential is not working — so the deployments here that name nobody are
+/// still read with nothing at all.
+async fn status_of(edge: &str, credential: Option<&str>) -> Value {
+    let response = status_from(edge, credential).await;
+    assert_eq!(response.status(), 200, "the page answers whoever may read it");
     response.json().await.expect("json")
 }
 
-/// The per-token rows `/status` reports.
+/// A read of `/status` that sends whatever credential it is given, answering the
+/// response itself: the refusals are as much of the behaviour as the body is.
+async fn status_from(edge: &str, credential: Option<&str>) -> reqwest::Response {
+    let mut request = client().get(format!("{edge}/status"));
+    if let Some(credential) = credential {
+        request = request.header("authorization", format!("Bearer {credential}"));
+    }
+    request.send().await.expect("send")
+}
+
 fn parsed_tokens(body: &str) -> Value {
     serde_json::from_str::<Value>(body).expect("json")["tokens"].clone()
 }
@@ -308,7 +321,7 @@ async fn the_counts_name_the_reason_a_request_did_not_become_a_turn() {
     };
     let edge = serve(config).await;
 
-    let before = status_of(&edge).await;
+    let before = status_of(&edge, None).await;
     assert_eq!(before["turns"], json!(0), "nothing has been asked yet");
 
     // No key, but a readable body: the refusal is about the key.
@@ -351,7 +364,7 @@ async fn the_counts_name_the_reason_a_request_did_not_become_a_turn() {
         .expect("send");
     assert_eq!(response.status(), 200);
 
-    let after = status_of(&edge).await;
+    let after = status_of(&edge, None).await;
     assert_eq!(after["unauthenticated"], json!(1), "one request arrived without a key");
     assert_eq!(after["malformed"], json!(1), "one body was not JSON");
     assert_eq!(after["too_large"], json!(1), "one body was over the ceiling");
@@ -665,7 +678,7 @@ async fn a_turn_over_the_ceiling_is_refused_as_retryable() {
     // it: one turn over the ceiling, none answered, and the timeout that released
     // the permit. Without the last one a busy deployment and a broken one look
     // alike from here.
-    let status = status_of(&edge).await;
+    let status = status_of(&edge, None).await;
     assert_eq!(status["refused"], json!(1), "the second turn was over the ceiling");
     assert_eq!(status["turns"], json!(0), "neither turn produced an answer");
     assert_eq!(status["timeouts"], json!(1), "the admitted turn timed out on its own");
@@ -1383,7 +1396,7 @@ async fn a_client_that_stops_reading_does_not_hold_the_upstream_open() {
 
         // The count has to follow the same switch: a deployment that did not ask
         // for a watchdog must not report breaches of one.
-        let status = status_of(&edge).await;
+        let status = status_of(&edge, None).await;
         assert_eq!(
             status["client_stalls"],
             json!(u64::from(expected)),
@@ -2010,7 +2023,7 @@ async fn an_issued_token_serves_a_turn_with_the_deployment_key() {
         );
     }
 
-    let status = status_of(&edge).await;
+    let status = status_of(&edge, Some(&token)).await;
     assert_eq!(status["tokens"][0]["name"], json!("laptop"));
     assert_eq!(status["tokens"][0]["requests"], json!(1));
     assert_eq!(status["tokens"][0]["inflight"], json!(0));
@@ -2026,7 +2039,7 @@ async fn an_issued_token_serves_a_turn_with_the_deployment_key() {
 async fn a_key_is_not_a_token_where_tokens_are_issued() {
     let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
     let root = temp_dir("access-key-pointing");
-    let (edge, _) = issuing_edge(&upstream, &root, "laptop", 0, 0).await;
+    let (edge, token) = issuing_edge(&upstream, &root, "laptop", 0, 0).await;
 
     let response = a_turn(&edge, "user_a_key_of_its_own").send().await.expect("send");
     assert_eq!(response.status(), 401);
@@ -2054,7 +2067,47 @@ async fn a_key_is_not_a_token_where_tokens_are_issued() {
         0,
         "nothing reached the upstream"
     );
-    assert_eq!(status_of(&edge).await["unauthenticated"], json!(2));
+    assert_eq!(status_of(&edge, Some(&token)).await["unauthenticated"], json!(2));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The page names callers where tokens are issued, so it takes a credential.
+///
+/// A deployment that issues tokens is one that is more than a laptop — that is what
+/// issuing is for — and the port it listens on is the thing that reaches further
+/// than the machine. A list of who is using the account is not the thing to hand
+/// out with it, so the rule is the one the turn endpoints already follow: a token,
+/// or nothing, and a key is not a token.
+#[tokio::test]
+async fn the_page_that_names_callers_asks_for_a_credential() {
+    let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let root = temp_dir("access-status");
+    let (edge, token) = issuing_edge(&upstream, &root, "laptop", 0, 0).await;
+
+    let response = status_from(&edge, None).await;
+    assert_eq!(response.status(), 401, "no credential, no list of callers");
+    let body = response.text().await.expect("body");
+    assert!(
+        body.contains("token this deployment issued"),
+        "the refusal says what to send instead: {body}"
+    );
+    assert!(!body.contains("laptop"), "and it names nobody: {body}");
+
+    let response = status_from(&edge, Some("user_a_key_of_its_own")).await;
+    assert_eq!(
+        response.status(),
+        401,
+        "a key is not a token on the page either, which is what makes revocation mean something here"
+    );
+
+    let status = status_of(&edge, Some(&token)).await;
+    assert_eq!(status["tokens"][0]["name"], json!("laptop"));
+    assert_eq!(status["unauthenticated"], json!(2), "and both refusals are counted");
+    assert_eq!(
+        received.lock().expect("record").count(GENERATE),
+        0,
+        "neither read was a turn"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -2082,7 +2135,11 @@ async fn a_revoked_token_stops_working_at_once() {
 
     assert_eq!(a_turn(&edge, &token).send().await.expect("send").status(), 200);
 
+    // A second token, because reading the page takes one and the one above is
+    // about to stop being a credential: a page that names callers is closed to a
+    // caller who has been let go.
     let mut document = Document::read(&tokens_file).expect("read");
+    let monitor = document.issue("monitor", 0, 0).expect("issue");
     document.revoke("phone").expect("revoke");
     document.write(&tokens_file).expect("write");
 
@@ -2091,8 +2148,18 @@ async fn a_revoked_token_stops_working_at_once() {
         401,
         "the next request is refused"
     );
-    let status = status_of(&edge).await;
-    assert_eq!(status["tokens"][0]["revoked"], json!(true), "and the count says why");
+    assert_eq!(
+        status_from(&edge, Some(&token)).await.status(),
+        401,
+        "and it reads no page either: the credential is gone, not just the turn"
+    );
+    let status = status_of(&edge, Some(&monitor)).await;
+    let rows = status["tokens"].as_array().expect("rows");
+    let phone = rows
+        .iter()
+        .find(|row| row["name"] == json!("phone"))
+        .expect("the revoked token is still listed");
+    assert_eq!(phone["revoked"], json!(true), "and the count says why");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -2127,7 +2194,7 @@ async fn a_token_issued_while_it_runs_is_picked_up() {
         200,
         "a token issued after the process started works while it runs"
     );
-    let status = status_of(&edge).await;
+    let status = status_of(&edge, Some(&second)).await;
     assert_eq!(status["tokens"].as_array().expect("rows").len(), 2);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -2197,7 +2264,7 @@ async fn a_token_over_its_ceiling_is_refused_as_retryable() {
     // The first was admitted and timed out on its own, which is what says the
     // second was refused for the token's ceiling rather than for something else.
     assert_eq!(first.expect("send").status(), 429);
-    assert_eq!(status_of(&edge).await["tokens"][0]["requests"], json!(1));
+    assert_eq!(status_of(&edge, Some(&token)).await["tokens"][0]["requests"], json!(1));
     let _ = std::fs::remove_dir_all(&root);
 }
 

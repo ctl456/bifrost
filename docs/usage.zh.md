@@ -111,7 +111,7 @@ tokens_file = "var/tokens.json"
 - `--rpm` 和 `--concurrency` 都是按 token 算的，默认不限。每分钟那档是**连续回填**的桶：到限的调用方等的是「它下一个请求值多少秒」，而不是等一个整分钟的边界；并发那档是防止一个调用方把整个部署的位置全占住。
 - 服务进程会在文件变化时重新读它，所以发牌和吊销对**正在运行**的部署即时生效。把文件删掉等于这个部署一把 token 都没有：所有请求都被拒——这是误删能发出的最大声音。
 - 在这个模式下 **key 不是 token**。给一个自己发牌的部署发 `user_…` key，会被 `401` 顶回来，并且拒绝信息里就写明了这一点。这正是重点：一把还能用的 key，就是吊销够不到的 key。
-- `GET /status` 会多出每个 token 一行——名字、已服务请求数、在飞数、空闲时间、是否已吊销——这是那些总数回答不了的问题：**到底是谁在占满上限**。
+- `GET /status` 会多出每个 token 一行——名字、已服务请求数、在飞数、空闲时间、是否已吊销——这是那些总数回答不了的问题：**到底是谁在占满上限**。也正因为这一行，这个页面成了发牌模式下唯一不再匿名的地方：它要 token 会给的那个凭据，否则回 `401`。转发 key 的部署这页里不点名任何人，仍然不需要凭据就能读；`/health` 在两种模式下都不需要。
 - **key 依然不在这个文件里。** `access.key_file` 只是这个进程去读的路径；key 本身不会被 `--print-config` 打印、不会进日志，也不会发给任何客户端。
 
 ## 接入客户端
@@ -153,7 +153,7 @@ tokens_file = "var/tokens.json"
 | 方法 | 路径 | 要 key？ | 返回 |
 |---|---|---|---|
 | `GET` | `/health`、`/` | 否 | `OK`，仅表示活着 |
-| `GET` | `/status` | 否 | 计数器：uptime、turns、refused、unauthenticated、too_large、malformed、upstream_failed、timeouts、client_stalls、inflight、max_inflight，外加每个已发 token 一行——只有名字，没有凭据 |
+| `GET` | `/status` | 点名调用方时需要 | 计数器：uptime、turns、refused、unauthenticated、too_large、malformed、upstream_failed、timeouts、client_stalls、inflight、max_inflight，外加每个已发 token 一行——只有名字，没有凭据。正是这些行让它在自己发牌的部署上需要 token |
 | `GET` | `/v1/models` | 否 | 提供方的目录，带缓存；只有第一次成功拉取之前才用内置表。它不按套餐过滤：里面也有本套餐用不了的模型。自己发牌的部署用自己手里那把 key 去拉，因为拉清单是这个部署自己的问题，不是某个调用方的问题 |
 | `POST` | `/v1/chat/completions` | 是 | OpenAI Chat Completions，流式与整包 |
 | `POST` | `/v1/messages` | 是 | Anthropic Messages |
@@ -163,7 +163,7 @@ tokens_file = "var/tokens.json"
 
 它说的话只去一个地方：默认每行一个 JSON 对象，`log_format = "text"` 时每行一条纯文本。每个请求都留一行——方法、路径、状态、首字节耗时，等到信息齐了还有协议、模型、流式标志和 key 指纹。被规则指到别的模型的回合两个名字都记：`model` 是实际回答的，`requested_model` 是客户端要的。**key 本身永远不进日志。**
 
-`GET /status` 用计数器回答这个进程一直在干什么，不需要 key：这是把「没有请求进来」和「请求进来但没工作」分开的办法。
+`GET /status` 用计数器回答这个进程一直在干什么，不需要 key——除非这个部署自己发牌：那样返回体里会点名调用方，于是它要的是和回合一样的 token。这是把「没有请求进来」和「请求进来但没工作」分开的办法，而一个点名调用方的页面，不是能交给任何够得着这个端口的人读的页面。
 
 打开 `evidence_archive = true` 后，每个回合的原始字节会被保留，每次回合往 journal 追加一行。五个读取旗标使用与服务端相同的配置——在仓库自带的 unit 下，这意味着命令行上也要带 `--config /etc/bifrost/bifrost.toml`，因为 unit 就是用这个方式指名文件的：
 

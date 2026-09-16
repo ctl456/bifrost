@@ -384,9 +384,12 @@ key itself never appears; a log is read by more people than the key is given to.
 `GET /status` answers what this process has been doing, as counts: how long it has
 been up, how many turns it answered, and how many requests it refused and for which
 reason. That is how an operator tells "nothing is arriving" from "nothing is
-working" without reading a log. It is aggregate and it needs no key, so nothing in
-it names a key, a model or a body, and no decision anywhere is taken from a number
-in it. There is no metrics endpoint — the setting that suggested one was removed
+working" without reading a log. It is aggregate and it needs no key
+where it names nobody, so nothing in it quotes a key, a model or a body, and no
+decision anywhere is taken from a number in it. A deployment that issues tokens does
+name callers there, one row each, and that page takes the same token a turn does:
+the port is what reaches further than the machine, and a list of who is using the
+account is not part of what it should hand out. There is no metrics endpoint — the setting that suggested one was removed
 rather than left unread, because a switch that turns nothing on is a promise the
 deployment cannot keep.
 

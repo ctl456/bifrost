@@ -357,11 +357,22 @@ no decision anywhere is taken from it.
 
 A deployment that issues tokens adds one block to the same body: a row per token,
 naming it and counting what it has served, what it is serving now, how long ago it
-was last used and whether it has been revoked. A name is none of the things above —
-it is neither a credential nor a model nor a body, it is the label the operator
+was last used and whether it has been revoked. name is neither a credential nor a model nor a body, it is the label the operator
 wrote — and it is what answers the question the totals cannot: which caller is the
 one filling the ceiling. Rows for a deployment that issues no tokens are absent
 rather than empty.
+
+That last block is the one thing on this page a stranger should not read, because it
+is the one thing that names people, so a deployment that issues tokens serves it to
+the same credential a turn takes. The port is what a deployment on a server opens,
+and a list of who is using the account is not part of what it should hand out with
+it. The check is deliberately not the one that authenticates a turn: that reserves a
+place at the ceiling and spends a request of the token's minute, and a monitoring
+loop whose reading of the page was itself rate-limited would be a limit doing the
+wrong job. What it does instead is compare a hash and answer. Where the key is
+forwarded the page names nobody, is read without a credential, and the probe is open
+in both shapes — it says one word about the process and nothing about who is using
+it.
 
 ## Determinism
 

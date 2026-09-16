@@ -163,13 +163,26 @@ async fn liveness() -> Response {
 
 /// What this process has answered so far, as counts.
 ///
-/// Read-only, aggregate and unauthenticated: every number is about this process
-/// rather than about a client's traffic, and none of them names a key, a model or a
-/// body. It answers the question an operator asks a deployment that is refusing
-/// turns — is nothing arriving, or is nothing working — without anyone reading the
-/// log. This is not the metrics switch that was removed: there is no switch, there
-/// is nothing to configure, and no decision anywhere is taken from a number in it.
-async fn status(State(edge): State<Arc<Edge>>) -> Response {
+/// Read-only and aggregate: every number is about this process rather than about a
+/// client's traffic, and none of them names a key, a model or a body. It answers the
+/// question an operator asks a deployment that is refusing turns — is nothing
+/// arriving, or is nothing working — without anyone reading the log. This is not the
+/// metrics switch that was removed: there is no switch, there is nothing to
+/// configure, and no decision anywhere is taken from a number in it.
+///
+/// One row per issued token does name callers, so where the deployment issues
+/// tokens this page takes the same credential a turn does. A page that names people
+/// is not one to hand to whatever can reach the port, and the port is the thing a
+/// deployment on a server opens. A deployment that forwards its callers' keys has
+/// no rows in it and goes on answering without one, and the probe is open either
+/// way: it says one word about the process and nothing about who is using it.
+async fn status(State(edge): State<Arc<Edge>>, headers: HeaderMap) -> Response {
+    if let Some(access) = edge.access()
+        && !access.holds(crate::auth::credential(&headers))
+    {
+        edge.note_unauthenticated();
+        return error_response(Shape::OpenAi, &Error::authentication(missing_credential(&edge)));
+    }
     let status = edge.status();
     json_response(
         StatusCode::OK,
@@ -400,12 +413,20 @@ fn unidentified(edge: &Arc<Edge>, protocol: &Protocol, payload: &[u8]) -> Respon
         return error_response(protocol.shape, &Error::invalid_request("Invalid JSON body"));
     }
     edge.note_unauthenticated();
-    let message = if edge.access().is_some() {
+    error_response(protocol.shape, &Error::authentication(missing_credential(edge)))
+}
+
+/// The sentence a request with no usable credential is refused with.
+///
+/// One place because it is said on two surfaces — a turn, and the status page of a
+/// deployment that names its callers — and the wording follows the two ways a
+/// deployment can be wired: a token it issued, or the caller's own key.
+fn missing_credential(edge: &Arc<Edge>) -> &'static str {
+    if edge.access().is_some() {
         "Missing API key. Send the token this deployment issued you in Authorization: Bearer <token> or x-api-key header"
     } else {
         "Missing API key. Send in Authorization: Bearer <key> or x-api-key header"
-    };
-    error_response(protocol.shape, &Error::authentication(message))
+    }
 }
 
 /// A non-streaming answer.

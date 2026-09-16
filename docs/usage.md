@@ -153,7 +153,10 @@ tokens_file = "var/tokens.json"
   worked would be one revocation does not reach.
 - `GET /status` gains a row per token — name, requests served, in flight, idle time,
   revoked — which is the question the aggregate counters cannot answer: which caller
-  is the one filling the ceiling.
+  is the one filling the ceiling. That row is also why this page is the one surface
+  that stops being anonymous here: it takes the token a turn takes, or answers `401`.
+  A deployment that forwards its callers' keys names nobody in it and is still read
+  without a credential, and `/health` needs nothing in either shape.
 - **The key is still not in the file.** `access.key_file` names a file this process
   reads; the key itself is never printed by `--print-config`, never logged, and never
   sent to a client.
@@ -220,7 +223,7 @@ onto one this account may use:
 | Method | Path | Key? | Answers |
 |---|---|---|---|
 | `GET` | `/health`, `/` | no | `OK` — liveness only |
-| `GET` | `/status` | no | Counters: uptime, turns, refused, unauthenticated, too_large, malformed, upstream_failed, timeouts, client_stalls, inflight, max_inflight, and one row per issued token — names, never credentials |
+| `GET` | `/status` | where it names callers | Counters: uptime, turns, refused, unauthenticated, too_large, malformed, upstream_failed, timeouts, client_stalls, inflight, max_inflight, and one row per issued token — names, never credentials. The rows are why this one takes a token when the deployment issues them |
 | `GET` | `/v1/models` | no | The provider's catalogue, cached; the built-in table only before the first successful fetch. Not plan-filtered: it names models this plan refuses. A deployment that issues tokens fetches it with the key it holds, because a catalogue is the deployment's own question rather than a caller's |
 | `POST` | `/v1/chat/completions` | yes | OpenAI Chat Completions, streaming and whole |
 | `POST` | `/v1/messages` | yes | Anthropic Messages |
@@ -236,7 +239,10 @@ records both names — `model` is what answered, `requested_model` is what was a
 for. **The key itself is never logged.**
 
 `GET /status` answers what this process has been doing, as counts, with no key
-needed: that is how "nothing is arriving" is told from "nothing is working".
+needed — unless the deployment issues tokens, in which case the body names them and
+it takes the same token a turn does: that is how "nothing is arriving" is told from
+"nothing is working", and a page that names callers is not a page to hand to whoever
+can reach the port.
 
 With `evidence_archive = true`, each turn's original bytes are kept and one line per
 turn is appended to the journal. Five flags read that back, using the same
