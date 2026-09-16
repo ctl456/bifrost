@@ -1,0 +1,78 @@
+# The three gates a change has to pass, run where nobody has to remember them.
+#
+# They are the same three the section in README.md names, in the same order, and
+# they are the whole of what a green mark means here: one machine's
+# `cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings
+# && cargo fmt --all --check` is this file. `--locked` is added, so a change that
+# needed a dependency to move and did not carry the lock file with it fails here
+# rather than on the machine that pulls it.
+#
+# The two checks that live outside the test suite are not in this job, and neither
+# can be: `tools/smoke.sh` needs the key a real login writes and spends a turn, and
+# what it checks is a running deployment rather than a diff. `tools/smoke.sh` is
+# what to run before installing a build, and its `--self-test` is what to run when
+# you doubt it.
+#
+# `tools/check-dialect-alignment.sh` is in its own job, and that job only runs on
+# the schedule and by hand. It answers a question about the published client, not
+# about the commit: the day npm carries a release the dialect does not know, every
+# branch is equally red, and a mark that is red for a reason no change can fix is
+# one people learn to walk past. On the schedule it is a reminder that arrives
+# once a day; on a pull request it would be noise.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # A daily question, asked at a time nobody is waiting on the answer.
+    - cron: "17 6 * * *"
+
+permissions:
+  contents: read
+
+env:
+  # A test that fails should say which assertion failed, not which escape codes
+  # the terminal it is not attached to did not understand.
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The channel and the components come from rust-toolchain.toml, so the
+      # runner uses the same toolchain declaration a laptop does. This step only
+      # installs it.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: The source is formatted the way `cargo fmt` would write it
+        run: cargo fmt --all --check
+
+      - name: No lint fires
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Every test passes
+        run: cargo test --workspace --locked
+
+  dialect:
+    # Not on a pull request: see the note at the top of this file.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # curl and python3 are the script's two dependencies, and both are already
+      # on the runner. Nothing here is built: the comparison is between the
+      # dialect's vocabulary in the tree and the literals in the published
+      # package, so the answer does not depend on this repository compiling.
+      - name: The published client still contains the vocabulary this dialect implements
+        run: tools/check-dialect-alignment.sh

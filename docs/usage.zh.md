@@ -203,6 +203,8 @@ tools/check-dialect-alignment.sh                           # 词汇表 vs 已发
 tools/smoke.sh --generate                                  # 起一个构建 + 一个真实回合
 ```
 
+前三条在每次 push 和每个 pull request 上跑，来自 `.github/workflows/ci.yml`。对齐检查是同一个文件里的另一个 job，按日程跑：它报的是「已发布的客户端动了」，这件事在同一时刻对所有分支都成立，不是某次改动决定得了的。
+
 `tools/smoke.sh` 会起一个构建、和真实服务对话，然后把服务端自己的日志读回来：每个请求留下的访问行、被拒预请求才会出现的警告、key 从未进入日志、以及停止信号是否干净退出。两个外部检查都能证明自己有能力失败——smoke 用 `--self-test`，对齐脚本用 `CC_SELFTEST=1`。
 
 ## 已验证内容

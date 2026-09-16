@@ -292,6 +292,11 @@ tools/check-dialect-alignment.sh                           # vocabulary vs the p
 tools/smoke.sh --generate                                  # a build, a running server, one real turn
 ```
 
+The first three run on every push and pull request, from
+`.github/workflows/ci.yml`. The dialect check is that file's other job and runs on
+a schedule: what it reports is that the published client moved, which is true of
+every branch at the same moment and is not something a change decides.
+
 `tools/smoke.sh` starts a build and talks to the live service, then reads the
 server's log back: the access line each request left, the warnings a refused
 pre-flight shows up in, that the key never reached the log, and a stop signal

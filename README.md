@@ -342,6 +342,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
+Those three are not only advice: `.github/workflows/ci.yml` runs them, with
+`--locked`, on every push and every pull request, and they are the whole of what a
+green mark means here. Its second job is the dialect check below, on a schedule
+rather than on a pull request — the question it asks is about the published client,
+so the day the client moves it is red for every branch at once, which is news to
+act on rather than a verdict on a change.
+
 `systemd-analyze verify deploy/bifrost.service` checks the unit itself. Before the
 binary is installed it complains about the path it cannot find and nothing else,
 which is the shape of a unit whose directives are all accepted.
