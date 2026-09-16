@@ -22,7 +22,8 @@ Anthropic Messages 或 OpenAI Responses 的客户端连它；它替这个客户�
 
 ## 环境要求
 
-- Rust，版本由 `rust-toolchain.toml` 钉住。没有别的：不需要 Node，不需要 Docker。
+- Rust，版本由 `rust-toolchain.toml` 钉住；或者用发好的镜像，那样连工具链都不需要
+  （见「用容器跑」）。没有别的：不需要 Node。
 - 运行的地方能访问 `api.commandcode.ai`。
 - 一个 key。`cmdc login` 会写一份到 `~/.commandcode/auth.json`；除非 `[access]` 点名读
   它，Bifrost 不碰这个文件 —— 默认是每个请求把 key 带进来。
@@ -202,6 +203,43 @@ tokens_file = "var/tokens.json"
 所以这个构建用不了的配置是让 unit 失败而不是让第一个请求失败。安装步骤写在 unit 的
 头部注释里。停止信号 SIGTERM 和 SIGINT 都认，会放完在飞的请求并留一行日志。
 
+### 用容器跑
+
+镜像就是同一个二进制，默认值也正好是容器要的：`0.0.0.0:3050`、每个请求转发调用方的
+key、什么都不用配。entrypoint 就是那个二进制，也没有 `CMD`，所以参数列表就是这个构建
+本来就有的命令行：
+
+```sh
+docker build -t bifrost .
+
+# 一份配置，挂到命令点名的地方。
+docker run --rm -v "$PWD/bifrost.toml:/etc/bifrost/bifrost.toml:ro" \
+  bifrost --check --config /etc/bifrost/bifrost.toml
+
+# 起服务：端口放出来，state 目录放在卷上。
+docker run -d --name bifrost -p 3050:3050 -v bifrost-state:/var/lib/bifrost bifrost
+```
+
+`--check`、`--print-config`、`--token-new`、`--token-list`、`--token-revoke` 在容器里
+跟在宿主机上是同一批命令，后三个 token 命令读的还是服务读的那份配置 —— 所以它们必须跑
+在同一个卷上。容器没有 `ExecStartPre`，也不需要：进程是先校验配置再绑定端口，所以这个
+构建用不了的配置是让容器失败，而不是让第一个请求失败。
+
+`docker-compose.yml` 就是 systemd unit 在这一侧的等价物，里面每一条加固都是 unit 里的
+那一条：同一个非特权账号、丢掉全部 capability 且不允许再拿、只读文件系统，外加一个可写
+的命名卷 `/var/lib/bifrost` —— 这个部署自己发牌时 `var/tokens.json` 就落在那里。
+`stop_grace_period` 就是它的 `TimeoutStopSec`，理由也一样：流式的一轮能跑过容器默认的
+十秒。healthcheck 用的是镜像自带的那条而不是在 compose 里再写一遍，它从环境里读 `PORT`，
+所以挪了端口探针不会留在原地。
+
+镜像由 `.github/workflows/docker.yml` 构建 `linux/amd64` 和 `linux/arm64` 两个架构并发到
+GHCR：打 `v*` tag 会发这个名字的版本并推动 `latest`，在 main 上手动跑会发 `edge`；每个
+镜像还带 `sha-<commit>`，报告问题时报它 —— 那是唯一不会动的 tag。
+
+```sh
+docker run --rm ghcr.io/ctl456/bifrost:latest --help
+```
+
 ## 故障对照
 
 | 症状 | 是什么 |
@@ -228,6 +266,11 @@ tools/smoke.sh --generate                                  # 起一个构建、�
 再起一个同构建但自己发牌的部署，并把两边的日志读回来。它对发牌部署问的每个问题都用
 一个不可能有效的凭据，所以这一段不花钱。`--self-test` 把上游指到一个死端口，用来自证
 这个检查有能力失败。
+
+镜像由 `.github/workflows/docker.yml` 在每次 PR 和每次 push 到 main 时构建，构建完还会
+起一个容器、问它 `/health`，再把镜像自己声明的那条探针在容器里跑一遍。有这一步，
+Dockerfile 才是 CI 在检查的东西，而不是只有发版时才走一遍的东西；发布也在同一个文件里，
+靠 tag 触发。
 
 ## 已验证内容
 

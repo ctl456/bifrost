@@ -1,0 +1,70 @@
+# Bifrost under Docker Compose.
+#
+# The same shape as deploy/bifrost.service: one unprivileged process, one listening
+# socket, one outbound connection, and one directory it may write. Every line below
+# that is hardening rather than configuration is a line of that unit, and the
+# reasoning for it is written there.
+#
+# There is no `version:` key. Compose v2 reads this schema without one and says so on
+# every command when it is there.
+#
+# Nothing is configured here, because the defaults are what a container wants: listen
+# on 0.0.0.0:3050 and forward the caller's key. A deployment that issues tokens of its
+# own, or answers for a different upstream, adds the lines at the bottom.
+
+services:
+  bifrost:
+    # Building here is what makes a clone work with no registry at all; naming the image
+    # is what lets `docker compose pull` fetch a published one instead.
+    build: .
+    image: ghcr.io/ctl456/bifrost:latest
+    ports:
+      # Only the host side is configurable. The container side is the port the image
+      # publishes, which is the one it listens on and the one its probe asks.
+      - "${BIFROST_PORT:-3050}:3050"
+    restart: unless-stopped
+    # The unit's TimeoutStopSec. Ten seconds is what a container is given by default,
+    # and a streamed turn can run for minutes; past this the turn is cut mid-stream.
+    stop_grace_period: 90s
+    # The unit's ProtectSystem=strict and ProtectHome. The only thing this process
+    # writes is its state directory, which is the volume below.
+    read_only: true
+    # PrivateTmp, and the one path something might assume it can write.
+    tmpfs:
+      - /tmp
+    # CapabilityBoundingSet= and AmbientCapabilities=. The process binds 3050, which
+    # is above 1024, so it needs none of them.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      # `var/tokens.json` lives here when this deployment issues tokens. Named rather
+      # than anonymous, so that a `--token-new` run in one container is seen by the next
+      # one — which is the whole point of issuing a token that outlives a process.
+      - state:/var/lib/bifrost
+
+volumes:
+  state:
+
+# The healthcheck is the image's rather than a second copy of it here: it reads `PORT`
+# from the environment, and two declarations would be two things to keep in step.
+# `docker compose ps` shows what it answered.
+
+# To name a configuration file and the environment that goes with it, add to the
+# service above:
+#
+#   command: ["--config", "/etc/bifrost/bifrost.toml"]
+#   volumes:
+#     - state:/var/lib/bifrost
+#     - ./bifrost.toml:/etc/bifrost/bifrost.toml:ro
+#   environment:
+#     CC_API_BASE: https://api.commandcode.ai
+#     BIFROST_LOG_LEVEL: info
+#
+# `command:` is the argument list of the entrypoint, which is the binary, so `--check`
+# and `--token-new` are the same commands here that they are on a host. The file is
+# named rather than found through `BIFROST_CONFIG`, the choice the unit makes and for
+# the same reason: `docker inspect` shows the argument, and the file that is validated
+# is the file that is served. The environment names are the ones
+# deploy/bifrost.env.example documents.

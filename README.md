@@ -163,6 +163,14 @@ connection and nowhere to write but that directory. `--check` is wired into
 `ExecStartPre`, so a configuration this build cannot use fails the unit instead of
 the first request. Install steps are in the unit's own header.
 
+`Dockerfile` builds the same binary into an image that runs on the defaults a container
+wants — `0.0.0.0:3050`, the caller's key forwarded per request — with the entrypoint
+set to the binary, so `docker run … bifrost --token-new laptop` is the command line
+this build already has. `docker-compose.yml` is the unit file's equivalent: the same
+unprivileged account, no capabilities, a read-only filesystem and one writable volume
+for `var/tokens.json`. `.github/workflows/docker.yml` builds the image on every pull
+request and publishes it to GHCR on a `v*` tag; the commands are in `docs/usage.md`.
+
 ## License
 
 MIT — see `LICENSE`.

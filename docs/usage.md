@@ -27,7 +27,8 @@ protocol, and each one is billed to the same key.
 
 ## Requirements
 
-- Rust, pinned by `rust-toolchain.toml`. Nothing else: no Node, no Docker.
+- Rust, pinned by `rust-toolchain.toml` — or the published image, which needs no
+  toolchain at all (see "In a container" below). Nothing else: no Node.
 - Network access to `api.commandcode.ai` from wherever it runs.
 - A key. `cmdc login` writes one to `~/.commandcode/auth.json`; Bifrost does not read
   that file unless `[access]` names it — by default you pass the key in, on each
@@ -266,6 +267,48 @@ A stop is answered on either signal: a manager's SIGTERM and a terminal's SIGINT
 stop the accept loop, let the requests in flight finish and leave a line saying so. A
 streamed turn can run past `TimeoutStopSec`, at which point systemd cuts it.
 
+### In a container
+
+The image is the same binary with the defaults a container wants — `0.0.0.0:3050`, the
+caller's key forwarded per request, nothing configured — and the entrypoint is the
+binary with no `CMD`, so the argument list is the command line this build already has:
+
+```sh
+docker build -t bifrost .
+
+# A configuration, mounted where the command names it.
+docker run --rm -v "$PWD/bifrost.toml:/etc/bifrost/bifrost.toml:ro" \
+  bifrost --check --config /etc/bifrost/bifrost.toml
+
+# Serving, with the port published and the state directory on a volume.
+docker run -d --name bifrost -p 3050:3050 -v bifrost-state:/var/lib/bifrost bifrost
+```
+
+`--check`, `--print-config`, `--token-new`, `--token-list` and `--token-revoke` are the
+same commands here as they are on a host, and the three token ones read the same
+configuration the server reads — which is why they have to be run against the same
+volume. A container has no `ExecStartPre` and does not need one: the process validates
+the configuration before it binds, so a file this build cannot use fails the container
+rather than the first request.
+
+`docker-compose.yml` is the unit file's equivalent, and every hardening line in it is
+one of the unit's. The container runs as the same unprivileged account, drops every
+capability and may not gain one, and has a read-only filesystem with one named volume —
+`/var/lib/bifrost`, where `var/tokens.json` lands when this deployment issues tokens.
+`stop_grace_period` is its `TimeoutStopSec`, for the same reason: a streamed turn can
+run past the ten seconds a container is given by default. The healthcheck is the image's
+own rather than a second copy in the compose file, and it reads `PORT` from the
+environment, so moving the port does not leave the probe behind.
+
+Images are built for `linux/amd64` and `linux/arm64` by `.github/workflows/docker.yml`
+and published to GHCR: a `v*` tag publishes the version it names and moves `latest`, a
+manual run from main publishes `edge`, and every image also carries `sha-<commit>` —
+the tag to name when reporting something, because it is the only one that cannot move.
+
+```sh
+docker run --rm ghcr.io/ctl456/bifrost:latest --help
+```
+
 ## Troubleshooting
 
 | Symptom | What it is |
@@ -298,6 +341,12 @@ deployment it asks with a credential that cannot work, so the section costs noth
 a refusal is decided before the upstream is reached — except the one turn under
 `--generate`. `--self-test` points it at a dead port, so the check can prove it is
 able to fail.
+
+The image is built on every pull request and every push to main by
+`.github/workflows/docker.yml`, which then starts one, asks it `/health` and runs the
+probe the image declares against it. That step is what makes the Dockerfile something
+CI checks rather than something only a release exercises; publishing is in the same
+file, on a tag.
 
 ## What has been verified
 

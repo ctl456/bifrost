@@ -1,0 +1,22 @@
+# What the build does not read, so that the context Docker sends is the sources
+# rather than the repository. `target/` is the one that matters: it is hundreds of
+# megabytes, and the release binary in it is the thing this image is about to build
+# for itself.
+#
+# `bifrost.toml` is in here because it is a deployment's own file — the one that
+# carries a salt, a key path or an access decision — and a context is what gets sent
+# to whatever is building the image.
+target/
+var/
+bifrost.toml
+bifrost.example.toml
+.git/
+.github/
+.ace-tool/
+deploy/
+docs/
+fixtures/
+tests/
+tools/
+*.log
+.env
