@@ -356,11 +356,16 @@ which is the shape of a unit whose directives are all accepted.
 Two checks live outside the test suite, because neither question can be asked of a
 unit test. `tools/check-dialect-alignment.sh` compares the dialect's vocabulary
 against the published client and says whether a drift line means the shape moved.
-`tools/smoke.sh` starts a build and talks to the live service — health, the model
-catalogue, and with `--generate` one real turn — then reads the server's own log
-back: the access line each request left, the warnings a refused pre-flight shows up
-in and nowhere else, a check that the key never reached the log, and a stop signal —
-the one a service manager sends — answered with a clean exit and a line saying so.
+`tools/smoke.sh` starts a build and talks to the live service — health, the counts,
+the model catalogue, the archive and its retention pass — and with `--generate` one
+real turn. Then it starts a second deployment of the same build that issues tokens
+instead, and asks it the questions only a running process can answer: a token that
+works, a key that does not, a revocation that reaches the next request, a status page
+that is closed to whoever cannot present either, and a token file that holds hashes
+at 0600. It reads each deployment's own log back: the access line every request left,
+the warnings a refused pre-flight shows up in and nowhere else, that no credential
+reached the log, and a stop signal — the one a service manager sends — answered with
+a clean exit and a line saying so.
 Both can prove they are capable of failing: `CC_SELFTEST=1` for the first,
 `--self-test` for the second.
 

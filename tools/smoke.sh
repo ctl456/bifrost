@@ -10,7 +10,8 @@
 #
 # Usage:
 #   tools/smoke.sh                 health, the counts, the model catalogue, the
-#                                  archive's retention pass and reading it back
+#                                  archive's retention pass and reading it back, and
+#                                  a second deployment that issues tokens
 #   tools/smoke.sh --generate      also spend a few tokens on one real turn
 #   tools/smoke.sh --key-file P    where the key is (default ~/.commandcode/auth.json)
 #   tools/smoke.sh --port N        port to run on (default 3051)
@@ -20,7 +21,9 @@
 #
 # The key is read from the file the CLI writes at login. It is never echoed and
 # never written to the temporary configuration: it goes out as the `Authorization`
-# of the requests this script makes, exactly as a client's would.
+# of the requests this script makes, exactly as a client's would. The issuing
+# deployment is told where that file is — a path, which is the one thing about the
+# key that is safe to write down — because holding the key itself is what it is for.
 #
 # The last section reads the server's own access lines back: one line per request,
 # carrying the model and the key fingerprint of the turns that got that far, and
@@ -61,7 +64,7 @@ work=$(mktemp -d)
 server_log="$work/server.log"
 # Nothing to kill once the shutdown section has stopped it, and `kill 0` would mean
 # the whole process group.
-trap 'if [ -n "${server_pid:-}" ]; then kill "$server_pid" 2>/dev/null || true; fi; rm -rf "$work"' EXIT
+trap 'for pid in "${server_pid:-}" "${issuing_pid:-}"; do if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi; done; rm -rf "$work"' EXIT
 
 # A configuration of its own, so the check does not depend on one being present.
 cat > "$work/bifrost.toml" <<TOML
@@ -126,24 +129,30 @@ else
     fail "GET /status"
 fi
 # The field list is the contract an operator's dashboard reads, and the counts have
-# to be about this process alone: this section exists to pin both.
+# to be about this process alone: this section exists to pin both. `tokens` is in the
+# list because the body always carries it — this deployment issues none, so it has to
+# be empty rather than absent, which is what says the rows are about tokens instead of
+# about the deployment that happens to be running.
 if python3 - "$counts_before" <<'PY'
 import json, sys
 status = json.load(open(sys.argv[1]))
 fields = sorted(status)
 want = sorted([
     "uptime_ms", "inflight", "max_inflight", "turns", "refused", "unauthenticated",
-    "too_large", "malformed", "upstream_failed", "timeouts", "client_stalls",
+    "too_large", "malformed", "upstream_failed", "timeouts", "client_stalls", "tokens",
 ])
 if fields != want:
     print("  note  fields: %s" % ", ".join(fields))
+    raise SystemExit(1)
+if status["tokens"]:
+    print("  note  tokens=%r, and this deployment issues none" % status["tokens"])
     raise SystemExit(1)
 if status["turns"] != 0:
     print("  note  turns=%r, and nothing has asked for a turn yet" % status["turns"])
     raise SystemExit(1)
 PY
 then
-    pass "the counts carry the documented fields and no turn yet"
+    pass "the counts carry the documented fields, no token rows, and no turn yet"
 else
     fail "the counts are not what /status documents"
 fi
@@ -264,6 +273,167 @@ if grep -Fq "$KEY" "$server_log"; then
     fail "the key itself appears in the log"
 else
     pass "the key never appears in the log"
+fi
+
+echo
+echo "== the same build, issuing tokens =="
+# The other way to run it: this process holds the key and hands each caller a token.
+# Nothing here spends anything — a refusal is decided before the upstream is reached —
+# except the turn under --generate, and what the section checks is the part no unit
+# test can see: issuance, revocation and the closed page against a running process,
+# and the file all of it lands in.
+ISSUING_PORT=$((PORT + 1))
+ISSUING_BASE="http://127.0.0.1:$ISSUING_PORT"
+issuing_log="$work/issuing/log"
+mkdir -p "$work/issuing/var"
+# A working directory of its own, so the state this deployment writes is not the state
+# the sections above read back. The token file is named absolutely for that same
+# reason: the commands below are run from the repository root and the server runs from
+# `$work/issuing`, and a relative path would have them reading two different files —
+# which is a mistake this section made before it was written to catch it.
+cat > "$work/issuing/bifrost.toml" <<TOML
+version = 1
+host = "127.0.0.1"
+port = $ISSUING_PORT
+api_base = "$UPSTREAM"
+[wire]
+adapter = "cc/1.53.1"
+drift_watch = false
+[access]
+enabled = true
+key_file = "$KEY_FILE"
+tokens_file = "$work/issuing/var/tokens.json"
+TOML
+
+# One attempt at a turn, by whatever credential is handed to it. Only a 200 reaches
+# the upstream, so asking with a credential that cannot work costs nothing.
+attempt() {
+    curl -sS -m 120 -o "$work/issuing/turn.json" -w '%{http_code}' \
+        -H "Authorization: Bearer $1" -H "Content-Type: application/json" \
+        -d '{"model":"deepseek/deepseek-v4-flash","messages":[{"role":"user","content":"Reply with exactly: OK"}],"max_tokens":32}' \
+        "$ISSUING_BASE/v1/chat/completions"
+}
+
+# The check a unit runs first, on a deployment with no tokens: it has to say so rather
+# than pass and leave every request to fail as a 401.
+if check=$("$start_dir/$BIN" --check --config "$work/issuing/bifrost.toml" 2>&1) &&
+    printf '%s\n' "$check" | grep -q "no token issued yet"; then
+    pass "--check reports a deployment that has issued no token yet"
+else
+    fail "--check on an issuing deployment said: ${check:-<no output>}"
+fi
+
+cd "$work/issuing"
+"$start_dir/$BIN" --config "$work/issuing/bifrost.toml" > "$issuing_log" 2>&1 &
+issuing_pid=$!
+cd "$start_dir"
+for _ in $(seq 1 50); do
+    if curl -fsS -m 2 "$ISSUING_BASE/health" >/dev/null 2>&1; then break; fi
+    kill -0 "$issuing_pid" 2>/dev/null || { echo "the issuing deployment exited:"; cat "$issuing_log"; exit 1; }
+    sleep 0.2
+done
+
+issued=$("$start_dir/$BIN" --token-new laptop --rpm 6 --concurrency 1 --config "$work/issuing/bifrost.toml")
+token=$(printf '%s\n' "$issued" | sed -n 's/.*\(bfr_[0-9a-f]\{64\}\).*/\1/p')
+if [ -n "$token" ]; then
+    pass "--token-new prints a token once"
+else
+    fail "--token-new printed no token: $issued"
+fi
+
+# What is on disk is a hash and a name, at a mode nobody else can read: the file is
+# the thing that gets copied around, and a copy of it must not be a credential.
+if [ ! -f "$work/issuing/var/tokens.json" ]; then
+    fail "no token file was written where the configuration names one"
+elif grep -q "$token" "$work/issuing/var/tokens.json"; then
+    fail "the token is stored in the clear"
+else
+    pass "the token file holds no token, only its hash"
+fi
+mode=$(stat -c '%a' "$work/issuing/var/tokens.json" 2>/dev/null || echo none)
+if [ "$mode" = "600" ]; then
+    pass "the token file is written 0600"
+else
+    fail "the token file is mode $mode"
+fi
+
+# The page names callers, so it takes one. This is the check that would have caught a
+# status page listing who is using the account to whoever reached the port.
+anon_code=$(curl -sS -m 5 -o "$work/issuing/anon.json" -w '%{http_code}' "$ISSUING_BASE/status")
+if [ "$anon_code" = "401" ] && ! grep -q "laptop" "$work/issuing/anon.json"; then
+    pass "the page that names callers answers 401 without one, and names nobody"
+else
+    fail "GET /status without a credential answered $anon_code: $(head -c 120 "$work/issuing/anon.json")"
+fi
+page_code=$(curl -sS -m 5 -o "$work/issuing/status.json" -w '%{http_code}' -H "Authorization: Bearer $token" "$ISSUING_BASE/status")
+if [ "$page_code" = "200" ] && grep -q '"name":"laptop"' "$work/issuing/status.json"; then
+    pass "the same page answers the token, with a row named for it"
+else
+    fail "GET /status with the token answered $page_code: $(head -c 120 "$work/issuing/status.json")"
+fi
+
+# A key is not a token here: a credential that still worked would be one revocation
+# does not reach. Neither of these reaches the upstream, so neither costs anything.
+if [ "$(attempt "$KEY")" = "401" ]; then
+    pass "a key sent to an issuing deployment is refused"
+else
+    fail "a key sent to an issuing deployment was not refused with 401"
+fi
+invented="bfr_$(printf '0%.0s' $(seq 1 64))"
+if [ "$(attempt "$invented")" = "401" ]; then
+    pass "a token that was never issued is refused the same way"
+else
+    fail "an unissued token was not refused with 401"
+fi
+
+# Issuance and revocation reach the process that is running, which is the whole
+# reason the file is re-read: a token that only stops working after a restart is a
+# token that works until somebody remembers.
+phone=$("$start_dir/$BIN" --token-new phone --config "$work/issuing/bifrost.toml" |
+    sed -n 's/.*\(bfr_[0-9a-f]\{64\}\).*/\1/p')
+phone_code=$(curl -sS -m 5 -o "$work/issuing/status.json" -w '%{http_code}' -H "Authorization: Bearer $phone" "$ISSUING_BASE/status")
+if [ -n "$phone" ] && [ "$phone_code" = "200" ] && grep -q '"name":"phone"' "$work/issuing/status.json"; then
+    pass "a token issued while the process runs is accepted without a restart"
+else
+    fail "a token issued while it ran answered $phone_code"
+fi
+"$start_dir/$BIN" --token-revoke laptop --config "$work/issuing/bifrost.toml" >/dev/null
+if [ "$(attempt "$token")" = "401" ]; then
+    pass "revocation reaches the next request, not the next restart"
+else
+    fail "a revoked token was still served"
+fi
+
+if [ "$GENERATE" = "1" ]; then
+    # The one request here that costs anything, and the only one that proves the
+    # token was spent on the account's behalf rather than rejected for its shape.
+    if [ "$(attempt "$phone")" = "200" ] &&
+        python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("choices") else 1)' "$work/issuing/turn.json" 2>/dev/null; then
+        pass "a token serves a real turn"
+        if grep -q '"token":"phone"' "$issuing_log"; then
+            pass "the access line names the token, and the key only by fingerprint"
+        else
+            fail "the access line does not name the token that spent it"
+        fi
+    else
+        fail "a turn with an issued token answered $(head -c 200 "$work/issuing/turn.json")"
+    fi
+fi
+
+if grep -Fq "$token" "$issuing_log" || grep -Fq "$phone" "$issuing_log"; then
+    fail "a token appears in the log"
+else
+    pass "no token appears in the log"
+fi
+
+kill -TERM "$issuing_pid" 2>/dev/null || true
+issuing_stopped=0
+wait "$issuing_pid" || issuing_stopped=$?
+issuing_pid=""
+if [ "$issuing_stopped" -eq 0 ] && grep -q "shutting down" "$issuing_log"; then
+    pass "the issuing deployment is stopped by SIGTERM and says so"
+else
+    fail "the issuing deployment left exit status $issuing_stopped"
 fi
 
 echo

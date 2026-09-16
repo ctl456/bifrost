@@ -303,10 +303,13 @@ The first three run on every push and pull request, from
 a schedule: what it reports is that the published client moved, which is true of
 every branch at the same moment and is not something a change decides.
 
-`tools/smoke.sh` starts a build and talks to the live service, then reads the
-server's log back: the access line each request left, the warnings a refused
-pre-flight shows up in, that the key never reached the log, and a stop signal
-answered with a clean exit. Both external checks can prove they are able to fail —
+`tools/smoke.sh` starts a build and talks to the live service, then starts a second
+deployment of the same build that issues tokens, and reads both logs back: the access
+line each request left, the warnings a refused pre-flight shows up in, that no
+credential reached either log, and a stop signal answered with a clean exit. Everything
+it asks of the issuing deployment it asks with a credential that cannot work, so the
+section costs nothing — a refusal is decided before the upstream is reached — except
+the one turn under `--generate`. Both external checks can prove they are able to fail —
 `--self-test` for the smoke script, `CC_SELFTEST=1` for the alignment script.
 
 ## What has been verified
