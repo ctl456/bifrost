@@ -281,6 +281,30 @@ GHCR：打 `v*` tag 会发这个名字的版本并推动 `latest`，在 main 上
 docker run --rm ghcr.io/ctl456/bifrost:latest --help
 ```
 
+### 从 registry 部署
+
+服务器既不需要 checkout 也不需要编译器。`docker-compose.yml` 里的 `build:` 是给工作站
+用的；部署只认镜像名，把它拉下来。
+
+```sh
+docker run -d --name bifrost --restart unless-stopped -p 3050:3050 \
+  -v bifrost-state:/var/lib/bifrost ghcr.io/ctl456/bifrost:v0.1.1
+
+docker logs --follow bifrost                        # 它说了什么
+docker exec bifrost /usr/local/bin/bifrost --check   # 它怎么看自己那份配置
+```
+
+tag 是部署方的事而不是镜像的事：`v0.1.1` 是一个不会动的版本，`latest` 跟着最新的版本走，
+`sha-<commit>` 精确指向某一次构建 —— 所以报告问题时报它。钉在 `latest` 上的部署，重启后会
+落到最后一次发布的东西上，这个选择值得明着做。
+
+升级是换容器而不是改容器，因为「部署」是那个卷、不是容器。token 就是卷上的
+`var/tokens.json`，那是唯一需要备份的东西；转发调用方 key 的部署里它什么都没有。
+
+```sh
+docker compose pull && docker compose up -d --no-build   # 改完文件里的 tag 之后
+```
+
 ## 故障对照
 
 | 症状 | 是什么 |

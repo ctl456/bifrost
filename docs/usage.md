@@ -355,6 +355,33 @@ the tag to name when reporting something, because it is the only one that cannot
 docker run --rm ghcr.io/ctl456/bifrost:latest --help
 ```
 
+### Deploying it from the registry
+
+A server needs neither a checkout nor a compiler. The `build:` line in
+`docker-compose.yml` is for a workstation; a deployment names the image and pulls it.
+
+```sh
+docker run -d --name bifrost --restart unless-stopped -p 3050:3050 \
+  -v bifrost-state:/var/lib/bifrost ghcr.io/ctl456/bifrost:v0.1.1
+
+docker logs --follow bifrost                          # what it says
+docker exec bifrost /usr/local/bin/bifrost --check     # what it makes of its configuration
+```
+
+The tag is the deployment's business rather than the image's: `v0.1.1` is a release and
+does not move, `latest` follows the newest release, and `sha-<commit>` names one build
+exactly — which is why a report names that one. A deployment pinned to `latest` restarts
+onto whatever was published last, which is worth choosing deliberately.
+
+An upgrade replaces the container rather than changing it, because the volume is the
+deployment and the container is not. The tokens are `var/tokens.json` on that volume,
+which is the only thing to back up; a deployment that forwards its callers' keys has
+nothing in it at all.
+
+```sh
+docker compose pull && docker compose up -d --no-build   # after moving the tag in the file
+```
+
 ## Troubleshooting
 
 | Symptom | What it is |
