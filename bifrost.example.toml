@@ -4,6 +4,11 @@
 # Unknown keys are rejected rather than ignored.
 version = 1
 
+# What it listens on, and the one line a container is worth re-reading. A published port
+# arrives at the container's own address rather than at its loopback, so a deployment that
+# mounts a file naming 127.0.0.1 here publishes a port nothing answers on -- while its
+# healthcheck, a curl from inside the same namespace, goes on passing. On a host, where
+# nothing forwards for it, 127.0.0.1 is the safer answer.
 host = "0.0.0.0"
 port = 3050
 api_base = "https://api.commandcode.ai"

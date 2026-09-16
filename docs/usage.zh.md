@@ -220,6 +220,11 @@ docker run --rm -v "$PWD/bifrost.toml:/etc/bifrost/bifrost.toml:ro" \
 docker run -d --name bifrost -p 3050:3050 -v bifrost-state:/var/lib/bifrost bifrost
 ```
 
+有一行配置在挂进去之前值得再看一眼：`host = "127.0.0.1"` 是宿主机部署想要的，在这里是
+错的。发布端口打到的是容器自己的地址而不是它的 loopback，所以进程在宿主上根本连不上，而
+healthcheck（同一个 namespace 里 curl 自己）照样通过。默认值就是要的那个，不写这一行等于
+保留默认值。
+
 `--check`、`--print-config`、`--token-new`、`--token-list`、`--token-revoke` 在容器里
 跟在宿主机上是同一批命令，后三个 token 命令读的还是服务读的那份配置 —— 所以它们必须跑
 在同一个卷上。容器没有 `ExecStartPre`，也不需要：进程是先校验配置再绑定端口，所以这个

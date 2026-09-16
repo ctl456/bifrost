@@ -284,6 +284,13 @@ docker run --rm -v "$PWD/bifrost.toml:/etc/bifrost/bifrost.toml:ro" \
 docker run -d --name bifrost -p 3050:3050 -v bifrost-state:/var/lib/bifrost bifrost
 ```
 
+One line of a configuration is worth re-reading before it is mounted: a `host` of
+`127.0.0.1` is what a host deployment wants and is wrong here. A published port arrives at
+the container's own address rather than at its loopback, so the process is then
+unreachable from the host while its healthcheck — a curl from inside the same namespace —
+goes on passing. The default is the answer this wants, and omitting the line is the same
+as keeping it.
+
 `--check`, `--print-config`, `--token-new`, `--token-list` and `--token-revoke` are the
 same commands here as they are on a host, and the three token ones read the same
 configuration the server reads — which is why they have to be run against the same
