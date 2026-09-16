@@ -224,3 +224,32 @@ fn a_read_only_container_is_given_somewhere_to_write() {
         "the state directory is mounted, or this deployment cannot issue a token: {volumes:?}"
     );
 }
+
+/// A second build in the image has to be told the sources changed.
+///
+/// The dependencies are compiled in a layer of their own, from a placeholder crate of the
+/// same shape, so that editing `src/` does not recompile the C crypto library. Cargo
+/// decides what to rebuild by modification time, and a `COPY` carries the timestamps of
+/// the build context — the checkout — which are older than the placeholder build a moment
+/// before. An older source reads to cargo as an unchanged one, so without the `touch` the
+/// image ships the placeholder: a binary that exits immediately and says nothing, which is
+/// what a container built from it then does. One CI run learned that, so it is checked
+/// here rather than remembered.
+#[test]
+fn a_second_build_is_told_the_sources_changed() {
+    let dockerfile = read("Dockerfile");
+    let builds: Vec<String> = instructions(&dockerfile, "RUN")
+        .into_iter()
+        .filter(|run| run.contains("cargo build"))
+        .collect();
+
+    // Only when there are two: a single build has no earlier artifact for the sources to
+    // look older than, and the placeholder is the only reason this matters.
+    if builds.len() > 1 {
+        let final_build = builds.last().expect("a list of more than one has a last");
+        assert!(
+            final_build.contains("touch"),
+            "the second build makes its sources newer than the placeholder's artifact: {final_build}"
+        );
+    }
+}

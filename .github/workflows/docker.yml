@@ -76,8 +76,10 @@ jobs:
       - name: The image serves, and the probe it declares gets an answer
         run: |
           set -euo pipefail
-          docker run --rm --detach --name bifrost-check --publish 3050:3050 bifrost:check
-          trap 'docker stop bifrost-check >/dev/null 2>&1 || true' EXIT
+          # Not `--rm`: a container that exits on its own is the case this step exists to
+          # report, and `--rm` deletes the evidence with it.
+          docker run --detach --name bifrost-check --publish 3050:3050 bifrost:check
+          trap 'docker rm --force bifrost-check >/dev/null 2>&1 || true' EXIT
 
           for _ in $(seq 20); do
             if curl --fail --silent --output /dev/null http://127.0.0.1:3050/health; then
@@ -86,8 +88,10 @@ jobs:
             sleep 1
           done
           if ! curl --fail --silent --show-error http://127.0.0.1:3050/health; then
-            echo "the container did not answer; it said:" >&2
-            docker logs bifrost-check >&2
+            echo "the container did not answer. It is:" >&2
+            docker inspect --format 'status {{.State.Status}}, exit code {{.State.ExitCode}}, {{.State.Error}}' bifrost-check >&2 || true
+            echo "and it said:" >&2
+            docker logs bifrost-check >&2 || true
             exit 1
           fi
 

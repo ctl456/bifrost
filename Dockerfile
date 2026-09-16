@@ -38,7 +38,14 @@ RUN mkdir -p src/bin \
  && rm -rf src
 
 COPY src/ src/
-RUN cargo build --release --locked --bin bifrost
+# Cargo decides what to rebuild by modification time, and a `COPY` carries the timestamps
+# of the build context rather than the time of the copy. Those come from the checkout,
+# which is older than the placeholder build a moment ago, and an older source reads to
+# cargo as an unchanged one -- so without this line the image ships the placeholder: a
+# binary that does nothing and exits, which is what a container built from it then did.
+# Touching the sources is what makes them newer than the artifact built in their absence.
+RUN find src -type f -exec touch {} + \
+ && cargo build --release --locked --bin bifrost
 
 # The runtime is the Debian release the binary was compiled on, which is what makes a
 # binary linked against the system libc certain to find the one it was linked against.
