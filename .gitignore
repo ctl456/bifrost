@@ -1,5 +1,6 @@
 /target
 /var
+/bifrost.toml
 *.log
 .env
 .ace-tool/
