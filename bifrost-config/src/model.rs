@@ -265,15 +265,21 @@ impl Default for MechanismsConfig {
 /// What `/v1/models` answers with, and where that answer comes from.
 ///
 /// The endpoint is a compatibility surface: a client asks what it may request
-/// before it requests it. The list can come from the upstream, which knows what
-/// the account can actually use, or from the table compiled into this build, which
-/// is what a deployment that cannot reach the catalogue falls back to.
+/// before it requests it. The list can come from the upstream, which knows what it
+/// offers, or from the table compiled into this build, which is what a deployment
+/// that cannot reach the catalogue falls back to.
+///
+/// It is a list of what the provider serves rather than of what this account may
+/// use: a model a plan does not include is listed and still answers
+/// `401 MODEL_NOT_IN_PLAN`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModelsConfig {
-    /// Ask the upstream which models this account may use.
+    /// Ask the upstream what it offers.
     ///
-    /// Off means the built-in table is the whole answer, and no call is made.
+    /// Off means the built-in table is the whole answer, and no call is made. The
+    /// answer is not filtered to this account's plan, because the upstream does not
+    /// filter it either.
     pub provider: bool,
     /// How long a fetched list is reused before it is fetched again.
     ///

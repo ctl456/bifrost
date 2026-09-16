@@ -113,8 +113,14 @@ the upstream gave is served until a new one arrives, and only a deployment that
 has never had one falls back to the compiled-in table. The original resets to
 that table on every failed refresh, which trades a stale-but-true answer for a
 fresh guess. A body that is not a catalogue at all is a failure in the same
-sense, while an empty one is an answer: the upstream said this key may use
-nothing, and second-guessing it would offer models the account cannot request.
+sense, while an empty one is an answer: the upstream offered nothing, and
+second-guessing it would offer models the upstream does not serve.
+
+What the catalogue is not is a statement about the plan: the upstream lists what
+it offers, including models a given plan does not include, and those answer
+`401 MODEL_NOT_IN_PLAN` when they are asked for. Nothing here filters the list —
+it cannot, since the entitlement is not in it — which is the other half of why
+rules are explicit rather than inferred.
 
 ## The model rules
 

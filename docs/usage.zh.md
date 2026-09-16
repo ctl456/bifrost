@@ -101,7 +101,7 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 
 有两件事决定一个客户端到底能不能用，而不是它的协议看起来能不能用：
 
-- **模型名。** Bifrost 原样转发客户端点名的模型。默认写 `claude-sonnet-5` 的客户端就会去要 `claude-sonnet-5`；这个模型不在套餐里，账号会回 `401 MODEL_NOT_IN_PLAN`。要么把客户端的模型设置指向 `GET /v1/models` 列出来的东西，要么写一条规则，让客户端的默认值原样留着。
+- **模型名。** Bifrost 原样转发客户端点名的模型。默认写 `claude-sonnet-5` 的客户端就会去要 `claude-sonnet-5`；这个模型不在套餐里，账号会回 `401 MODEL_NOT_IN_PLAN`。注意 `GET /v1/models` 是**提供方的模型清单，不是按套餐过滤过的**——它会把本套餐用不了的模型也列出来。所以要么把客户端的模型设置指向一个真能回答的模型，要么写一条规则，让客户端的默认值原样留着。
 - **上游只有流式。** 不论客户端要什么，Bifrost 都会向上游要流，客户端没要流式时由它自己拼成完整响应。客户端的 `stream` 标志不会传到上游。
 
 ### 把模型名指到别处
@@ -118,7 +118,7 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 - 没有规则命中的名字按客户端写的那样转发，所以拼错的名字仍然是上游的 `401 MODEL_NOT_IN_PLAN`，而不是变成另一个模型的回答。这里没有通配、也没有兜底模型：规则表不是 fallback。
 - 改写发生在请求编码之前，这样才能让一个回合里出现的三个名字保持一致：上游被要的是新名字、响应里回的也是这个名字、访问日志两个都记——`model=` 是实际用的，`requested_model=` 是客户端要的。
 - `evidence_archive` 归档的是客户端自己的原始字节，所以一条规则哪天被怀疑，客户端真正发的名字还在档案里。
-- `GET /v1/models` 不受影响：它回答的是这个账号能被要什么，不是客户端能发什么。
+- `GET /v1/models` 不受影响：它回答的是提供方有哪些模型（比本套餐能用的多），规则也不会往里加东西。
 - 空 pattern、或者没指向任何模型的规则会直接拒绝加载：一条「看起来只有一条、实际匹配所有名字」的规则，是靠读配置读不出来的坑。
 
 ### 端点
@@ -127,7 +127,7 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 |---|---|---|---|
 | `GET` | `/health`、`/` | 否 | `OK`，仅表示活着 |
 | `GET` | `/status` | 否 | 计数器：uptime、turns、refused、unauthenticated、too_large、malformed、upstream_failed、timeouts、client_stalls、inflight、max_inflight |
-| `GET` | `/v1/models` | 否 | 账号自己的目录，带缓存；只有第一次成功拉取之前才用内置表 |
+| `GET` | `/v1/models` | 否 | 提供方的目录，带缓存；只有第一次成功拉取之前才用内置表。它不按套餐过滤：里面也有本套餐用不了的模型 |
 | `POST` | `/v1/chat/completions` | 是 | OpenAI Chat Completions，流式与整包 |
 | `POST` | `/v1/messages` | 是 | Anthropic Messages |
 | `POST` | `/v1/responses` | 是 | OpenAI Responses |

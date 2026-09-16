@@ -129,9 +129,10 @@ Two things decide whether a client works where its protocol suggests it should:
 
 - **The model name.** Bifrost forwards the model the client names. A client whose
   default is `claude-sonnet-5` will ask for `claude-sonnet-5`, and the account will
-  answer `401 MODEL_NOT_IN_PLAN` if that model is not in the plan. Either point the
-  client's model setting at something `GET /v1/models` lists for this key, or write
-  a rule and leave the client's own defaults alone.
+  answer `401 MODEL_NOT_IN_PLAN` if that model is not in the plan. `GET /v1/models`
+  is the provider's list, not a plan-filtered one — it names models this plan
+  refuses — so either point the client's model setting at something that answers,
+  or write a rule and leave the client's own defaults alone.
 - **The upstream is streaming-only.** For every client, Bifrost asks the upstream
   for a stream and assembles a whole body itself when the client did not ask for
   one. Nothing about the client's `stream` flag reaches upstream.
@@ -161,8 +162,8 @@ onto one this account may use:
   answered as `model=`, the name that was asked for as `requested_model=`.
 - The request bytes archived under `evidence_archive` are the client's own, so the
   name it really sent is still there if a rule is ever in question.
-- `GET /v1/models` is unaffected: it answers what the account may be asked for, not
-  what a client may send.
+- `GET /v1/models` is unaffected: it answers what the provider offers, which is more
+  than this plan may use, and a rule does not add to it.
 - A rule with an empty pattern, or one that names no model, refuses to load: a rule
   that matched every name while looking like a single entry is a typo nobody would
   find by reading it.
@@ -173,7 +174,7 @@ onto one this account may use:
 |---|---|---|---|
 | `GET` | `/health`, `/` | no | `OK` — liveness only |
 | `GET` | `/status` | no | Counters: uptime, turns, refused, unauthenticated, too_large, malformed, upstream_failed, timeouts, client_stalls, inflight, max_inflight |
-| `GET` | `/v1/models` | no | The account's own catalogue, cached; the built-in table only before the first successful fetch |
+| `GET` | `/v1/models` | no | The provider's catalogue, cached; the built-in table only before the first successful fetch. Not plan-filtered: it names models this plan refuses |
 | `POST` | `/v1/chat/completions` | yes | OpenAI Chat Completions, streaming and whole |
 | `POST` | `/v1/messages` | yes | Anthropic Messages |
 | `POST` | `/v1/responses` | yes | OpenAI Responses |

@@ -44,10 +44,13 @@ principle:
 | Anthropic SDK | `base_url` plus `x-api-key` or `auth_token` |
 
 The model name is the client's to get right: an account that does not have the
-model it is asked for answers `401 MODEL_NOT_IN_PLAN`. Ask `GET /v1/models` for what
-this key may actually use, either to point the client at one of them or to write a
-`[models.aliases]` rule that points the client's own name there. Bifrost rewrites
-nothing on its own: a name no rule matches is forwarded as it arrived.
+model it is asked for answers `401 MODEL_NOT_IN_PLAN`, and `GET /v1/models` is the
+provider's list rather than a plan-filtered one — it names models a plan refuses,
+which is exactly what a client asking for `claude-sonnet-5` runs into. Either point
+the client at a model that answers, or write a `[models.aliases]` rule that points
+the client's own name there. Bifrost rewrites nothing on its own: a name no rule
+matches is forwarded as it arrived, and the refusal that comes back is the
+upstream's real answer.
 
 The official `cmdc` client is not one of them: it talks the `/alpha/*` protocol, and
 Bifrost serves the three public protocols instead. That is the direction of the
@@ -202,9 +205,11 @@ journal, so a digest with no bytes behind it can be told from a broken writer.
 
 ### The model catalogue
 
-`/v1/models` asks the upstream's own catalogue path, per account, because that
-list says what this key may actually use rather than what the build was tested
-against. The answer is cached for `models.refresh_ms` and shared by the whole
+`/v1/models` asks the upstream's own catalogue path, because that is what the
+provider offers, rather than what the build was tested against. It is not a list of
+what this account is entitled to: the upstream includes models a plan does not
+cover, and those answer `401 MODEL_NOT_IN_PLAN` when asked for — a Go plan in this
+repository's checks lists `claude-sonnet-5` and is refused it. The answer is cached for `models.refresh_ms` and shared by the whole
 deployment, and a fetch that is already in flight is not started a second time,
 so a fleet of clients starting together sends one request between them. A
 catalogue is a read of what the upstream serves and does not pass through the

@@ -1,9 +1,16 @@
 //! The catalogue `/v1/models` answers with.
 //!
-//! The list can come from two places. The upstream publishes one per account, at
-//! the dialect's own catalogue path, and it is the better answer when it can be
-//! had: it says what this key may actually use. Failing that there is a table
-//! compiled into this build, which is what the deployment was tested against.
+//! The list can come from two places. The upstream publishes one, at the
+//! dialect's own catalogue path, and it is the better answer when it can be had:
+//! it is what the provider offers, which is more than the compiled-in table knows
+//! about. Failing that there is a table compiled into this build, which is what
+//! the deployment was tested against.
+//!
+//! What it is not is a statement about this account's plan: the upstream lists
+//! models a plan does not include, and those answer `401 MODEL_NOT_IN_PLAN` when
+//! they are asked for. A Go plan in this repository's own checks lists
+//! `claude-sonnet-5`, `gpt-5.5` and `google/gemini-3.8-flash` and is refused all
+//! three. The only answer to "may I use this" is asking for it.
 //!
 //! Where the original falls back to that table whenever a refresh fails, this
 //! serves the last list the upstream gave it instead. A catalogue the upstream
@@ -149,7 +156,10 @@ fn built_in() -> Vec<String> {
     BUILT_IN.iter().map(|id| (*id).to_owned()).collect()
 }
 
-/// Ask the upstream which models this account may use.
+/// Ask the upstream what it offers.
+///
+/// Not what this account is entitled to: the answer includes models the plan does
+/// not cover, which is why nothing here is ever picked automatically.
 ///
 /// Every way of not getting an answer — a refused status, an unreadable body, a
 /// body that is not a catalogue, a fetch that never returns — ends in `None`, and
@@ -193,10 +203,9 @@ async fn fetch(edge: &Edge, request: &WireRequest) -> Option<Vec<String>> {
 
 /// Read the ids out of a catalogue body.
 ///
-/// An empty list is an answer rather than a failure: the upstream said this
-/// account may use nothing, and second-guessing that with a built-in table would
-/// offer models the account cannot request. Only a body that is not a catalogue at
-/// all is `None`.
+/// An empty list is an answer rather than a failure: the upstream offered
+/// nothing, and second-guessing that with a built-in table would offer models the
+/// upstream does not serve. Only a body that is not a catalogue at all is `None`.
 #[must_use]
 pub fn parse(body: &str) -> Option<Vec<String>> {
     let parsed: Value = serde_json::from_str(body).ok()?;
