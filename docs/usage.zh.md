@@ -232,6 +232,47 @@ docker run -d --name bifrost -p 3050:3050 -v bifrost-state:/var/lib/bifrost bifr
 十秒。healthcheck 用的是镜像自带的那条而不是在 compose 里再写一遍，它从环境里读 `PORT`，
 所以挪了端口探针不会留在原地。
 
+### key 留在容器里的时候
+
+`[access]` 那套在容器里也就是三行配置，其中一行由「key 能挂到哪」定死。先把一份容器读得到
+的副本放好：
+
+```sh
+# 容器里的进程是 uid 10001，所以你自己 uid 下 0600 的文件它读不到。给它一份归它所有的
+# 副本，而不是把原件的权限放宽 —— 原件就是凭据本身。
+sudo install -d -o 10001 -g 10001 -m 0750 /srv/bifrost
+sudo install -o 10001 -g 10001 -m 0400 ~/.commandcode/auth.json /srv/bifrost/auth.json
+```
+
+```toml
+# 仓库根目录的 bifrost.toml
+[access]
+enabled = true
+key_file = "/etc/bifrost/auth.json"   # 叠加文件把 key 挂到这里
+tokens_file = "var/tokens.json"       # 相对路径：/var/lib/bifrost，也就是那个卷
+```
+
+```sh
+BIFROST_KEY_FILE=/srv/bifrost/auth.json \
+  docker compose -f docker-compose.yml -f docker-compose.access.yml up -d
+
+# token 写进的就是服务读的那个卷，所以这是它看到的同一个文件。
+docker exec bifrost /usr/local/bin/bifrost \
+  --config /etc/bifrost/bifrost.toml --token-new laptop --rpm 60 --concurrency 2
+```
+
+`docker-compose.access.yml` 是叠加文件而不是第二份部署：镜像、加固、端口、state 卷都还是
+基础文件那一套，它只加上要读的配置和要用的 key，两个都是 `:ro`。宿主侧路径从
+`BIFROST_KEY_FILE` 读 —— 那是 `.env` 里的一行（这个文件在 .gitignore 里），而不是每条命令
+都要打一遍的东西。
+
+跟转发调用方 key 的部署相比有两处不同。`/status` 要 token 才能看，因为每个已发 token 一行
+就意味着这页点了调用方的名字，这里唯一不是匿名的那页。另外带 `user_…` 来的调用方会被拒：
+一个还能用的 key 就是撤销够不到的 key。
+
+轮换账号的 key 是一次重启，因为它只在启动时读一次。发牌和撤销不是：`var/tokens.json` 是在
+服务运行中重读的，所以 `--token-new` 和 `--token-revoke` 是对运行中的部署做的事。
+
 镜像由 `.github/workflows/docker.yml` 构建 `linux/amd64` 和 `linux/arm64` 两个架构并发到
 GHCR：打 `v*` tag 会发这个名字的版本并推动 `latest`，在 main 上手动跑会发 `edge`；每个
 镜像还带 `sha-<commit>`，报告问题时报它 —— 那是唯一不会动的 tag。

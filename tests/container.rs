@@ -90,6 +90,20 @@ fn list(document: &str, key: &str) -> Vec<String> {
     items
 }
 
+/// The quoted words of an inline `key: [ ... ]` line.
+///
+/// `list` reads an indented block of items; this reads the one-line form, which is how the
+/// overlay writes the argument list an entrypoint takes.
+fn inline(document: &str, key: &str) -> Vec<String> {
+    let header = format!("{key}:");
+    document
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.starts_with('#') && line.starts_with(&header))
+        .map(|line| line.split('"').skip(1).step_by(2).map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
 /// The port the image publishes is the port the binary listens on by default.
 ///
 /// The image runs the binary with no arguments, so `EXPOSE` is a claim about
@@ -251,5 +265,76 @@ fn a_second_build_is_told_the_sources_changed() {
             final_build.contains("touch"),
             "the second build makes its sources newer than the placeholder's artifact: {final_build}"
         );
+    }
+}
+
+/// The overlay reads a configuration it mounts, at the path its command names.
+///
+/// Two lines have to agree for the key-holding arrangement to start: the path after
+/// `--config`, and the target of a mount. Disagree and the container fails before it binds,
+/// with a complaint about a file that is in the checkout and nowhere in the container.
+#[test]
+fn the_overlay_mounts_the_configuration_its_command_names() {
+    let overlay = read("docker-compose.access.yml");
+    let command = inline(&overlay, "command");
+    let flag = command
+        .iter()
+        .position(|word| word == "--config")
+        .unwrap_or_else(|| panic!("the overlay names a configuration: {command:?}"));
+    let named = command.get(flag + 1).expect("--config takes a path");
+
+    let mounted = list(&overlay, "volumes")
+        .into_iter()
+        .any(|mount| mount.ends_with(&format!("{named}:ro")));
+    assert!(
+        mounted,
+        "`--config {named}` reads a file this overlay has to mount there, read-only: {overlay}"
+    );
+}
+
+/// The overlay serves with a key that is mounted read-only and is not in the checkout.
+///
+/// The key is the credential the whole arrangement exists to keep on this machine, so the
+/// mount is `:ro` — nothing here writes it, and a writable mount of a secret is a way for
+/// whatever else reaches the container to spend the account. The host side is the
+/// operator's to name, and it is named outside the repository on purpose: `.gitignore`
+/// ignoring a path is not the same as a path that cannot be committed.
+#[test]
+fn the_overlay_mounts_a_key_that_is_not_in_the_checkout() {
+    let overlay = read("docker-compose.access.yml");
+    let key = list(&overlay, "volumes")
+        .into_iter()
+        .find(|mount| mount.ends_with("/etc/bifrost/auth.json:ro"))
+        .unwrap_or_else(|| panic!("the overlay mounts the account key read-only: {overlay}"));
+
+    // The host side is a path this file does not own: it is a variable, and it is not a
+    // path in the checkout. Either half alone would pass a file that named `./auth.json`,
+    // which is a credential one `git add -f` away from being committed.
+    let host = key.split(':').next().expect("a mount has a host side");
+    assert!(
+        !host.starts_with("./"),
+        "the key is not expected to sit in the checkout: {key}"
+    );
+    assert!(
+        host.contains("BIFROST_KEY_FILE"),
+        "the host path is the operator's to name rather than this file's to guess: {key}"
+    );
+}
+
+/// Turning the arrangement on does not loosen the container to do it.
+///
+/// The cheap way to make a key readable by uid 10001 is to stop being uid 10001, or to drop
+/// the read-only filesystem, or to hand the container a capability it does not need. The
+/// answer is a copy of the key owned by that uid — two commands in `docs/usage.md` — and
+/// this checks that the file which adds the key is not the file that gives those up.
+#[test]
+fn the_overlay_loosens_nothing_the_base_file_hardened() {
+    let overlay = read("docker-compose.access.yml");
+    for key in ["user:", "cap_add:", "privileged:", "read_only:", "security_opt:"] {
+        let loosened = overlay
+            .lines()
+            .map(str::trim)
+            .any(|line| !line.starts_with('#') && line.starts_with(key));
+        assert!(!loosened, "the overlay is the base file's hardening, plus a key: {key}");
     }
 }

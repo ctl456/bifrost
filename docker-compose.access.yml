@@ -1,0 +1,36 @@
+# The same deployment with `[access]` on: the key stays here, and callers get tokens.
+#
+# An overlay rather than a second deployment to keep in step. Everything that makes the
+# base file the unit file's equivalent -- the image, the account, the read-only
+# filesystem, the dropped capabilities, the port, the state volume, the healthcheck -- is
+# `docker-compose.yml`'s, and what is here is the two things the other arrangement adds:
+# a configuration to read, and a key that belongs to nobody but this process.
+#
+#   BIFROST_KEY_FILE=/srv/bifrost/auth.json docker compose \
+#     -f docker-compose.yml -f docker-compose.access.yml up -d
+#
+# What that configuration has to contain is the second half of the `[access]` section in
+# `docs/usage.md`, and one line of it is fixed by this file: `key_file` names
+# `/etc/bifrost/auth.json`, which is where the mount below puts the key. A path nothing
+# mounts is a container that refuses to start with `could not read access.key_file`.
+#
+# The key is a file this process reads and never writes, so the mount is `:ro` and the
+# read-only filesystem in the base file is not in its way. `tokens_file` is the one that
+# is written, and it lands in the state volume the base file already declares.
+
+services:
+  bifrost:
+    # The argument list of the entrypoint, which is the binary with no `CMD`, so this is
+    # the same command line a host deployment runs. The file is named rather than found
+    # through `BIFROST_CONFIG`, for the unit's reason: `docker inspect` shows the
+    # argument, and the file that is validated is the file that is served.
+    command: ["--config", "/etc/bifrost/bifrost.toml"]
+    volumes:
+      # The deployment's own configuration. No secret is in it -- `key_file` names a
+      # path rather than holding a key -- so this one is the file in the checkout.
+      - ./bifrost.toml:/etc/bifrost/bifrost.toml:ro
+      # The account key. The process inside runs as uid 10001, so the file you logged in
+      # with, at mode 0600 under your own uid, is a file it cannot read; `docs/usage.md`
+      # has the two commands that install a copy it can, and the reason a copy is what
+      # this wants rather than a looser mode on the original.
+      - ${BIFROST_KEY_FILE:?set BIFROST_KEY_FILE to the file that holds the account key}:/etc/bifrost/auth.json:ro

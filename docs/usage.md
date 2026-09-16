@@ -300,6 +300,52 @@ run past the ten seconds a container is given by default. The healthcheck is the
 own rather than a second copy in the compose file, and it reads `PORT` from the
 environment, so moving the port does not leave the probe behind.
 
+### When the key stays in the container
+
+The arrangement `[access]` describes is three lines of configuration in a container as
+well, and one of them is fixed by where a key can be mounted. Two commands put a copy
+where the process can read it:
+
+```sh
+# The process inside runs as uid 10001, so a file at mode 0600 under your own uid is a
+# file it cannot read. A copy it owns is what to give it -- not a looser mode on the
+# original, which is the credential itself.
+sudo install -d -o 10001 -g 10001 -m 0750 /srv/bifrost
+sudo install -o 10001 -g 10001 -m 0400 ~/.commandcode/auth.json /srv/bifrost/auth.json
+```
+
+```toml
+# bifrost.toml, in the checkout
+[access]
+enabled = true
+key_file = "/etc/bifrost/auth.json"   # where the overlay mounts the key
+tokens_file = "var/tokens.json"       # relative: /var/lib/bifrost, the state volume
+```
+
+```sh
+BIFROST_KEY_FILE=/srv/bifrost/auth.json \
+  docker compose -f docker-compose.yml -f docker-compose.access.yml up -d
+
+# A token is written into the volume the server reads, so this is the same file it sees.
+docker exec bifrost /usr/local/bin/bifrost \
+  --config /etc/bifrost/bifrost.toml --token-new laptop --rpm 60 --concurrency 2
+```
+
+`docker-compose.access.yml` is an overlay rather than a second deployment: the image,
+the hardening, the port and the state volume stay the base file's, and what it adds is
+the configuration to read and the key to serve with, both mounted `:ro`. It reads
+`BIFROST_KEY_FILE` for the host path — a line of `.env`, which is ignored here, rather
+than something to type on every command.
+
+Two things differ from a deployment that forwards its callers' keys. `/status` takes the
+token a turn takes, because a row per issued token names callers and that is the one page
+here that is not anonymous. And a caller sending `user_…` is refused: a key that still
+worked would be one no revocation reaches.
+
+Rotating the account key is a restart, because it is read once at startup. Issuing and
+revoking are not: `var/tokens.json` is re-read while this serves, which is what makes
+`--token-new` and `--token-revoke` things done to a running deployment.
+
 Images are built for `linux/amd64` and `linux/arm64` by `.github/workflows/docker.yml`
 and published to GHCR: a `v*` tag publishes the version it names and moves `latest`, a
 manual run from main publishes `edge`, and every image also carries `sha-<commit>` —

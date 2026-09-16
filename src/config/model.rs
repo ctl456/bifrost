@@ -361,9 +361,10 @@ pub struct AccessConfig {
     /// The file the upstream key is read from, when this deployment issues tokens.
     ///
     /// Either a JSON object with an `apiKey` field — what `cmdc login` writes — or
-    /// a file whose whole content is the key. Read at startup and on change, never
+    /// a file whose whole content is the key. Read once, at startup, and never
     /// written to, so the key is not copied into this configuration, into a printed
-    /// configuration, or into a log line.
+    /// configuration, or into a log line. A rotation is a restart; the file the
+    /// issued tokens are in is the one that is re-read while this serves.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_file: Option<PathBuf>,
     /// Where issued tokens are recorded.

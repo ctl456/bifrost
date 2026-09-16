@@ -95,10 +95,12 @@ timeout_ms = 10000
 # a `user_…` key, because a key that still worked would be one no revocation reaches.
 enabled = false
 # The file the upstream key is read from. Either the JSON `cmdc login` writes (an
-# object with an `apiKey` field) or a file whose whole content is the key. Read at
-# startup and on change, never written to: the key is not copied into this file,
-# into what --print-config prints, or into a log line. Required when enabled is
-# true, because a deployment that issues tokens has to know what to serve with.
+# object with an `apiKey` field) or a file whose whole content is the key. Read
+# once, at startup, and never written to: the key is not copied into this file,
+# into what --print-config prints, or into a log line. Rotating it is a restart,
+# which is the one thing `tokens_file` below is not: that file is re-read while
+# this serves. Required when enabled is true, because a deployment that issues
+# tokens has to know what to serve with.
 # key_file = "/home/you/.commandcode/auth.json"
 # Where issued tokens are recorded. The file holds the sha256 of each token rather
 # than the token, so it can be read, copied and backed up without handing anyone the
