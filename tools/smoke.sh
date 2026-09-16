@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # Check a running build against the live service.
 #
-# The unit tests prove the shapes and the alignment script proves the vocabulary,
-# and neither can prove that a request the upstream accepts is the one this build
-# sends. A header the service rejects arrives as a failed request that this proxy
+# The unit tests prove the shapes against recorded vectors, and no test can prove
+# that a request the upstream accepts is the one this build sends. A header the service rejects arrives as a failed request that this proxy
 # logs and then ignores — the turn is served anyway — so the failure is invisible
 # in the response. That is the gap this closes: it is the check that caught a
 # missing `User-Agent`, which every test passed over.
 #
 # Usage:
 #   tools/smoke.sh                 health, the counts, the model catalogue, the
-#                                  archive's retention pass and reading it back, and
-#                                  a second deployment that issues tokens
+#                                  access line, and a second deployment that issues
+#                                  tokens
 #   tools/smoke.sh --generate      also spend a few tokens on one real turn
 #   tools/smoke.sh --key-file P    where the key is (default ~/.commandcode/auth.json)
 #   tools/smoke.sh --port N        port to run on (default 3051)
@@ -76,18 +75,9 @@ api_base = "$UPSTREAM"
 adapter = "cc/1.53.1"
 drift_watch = false
 
-# Turned on so that retention has something to apply to, and so that a deployment
-# with the archive on is the one this checks: the mechanism is off by default, and a
-# configuration that is only ever exercised with it off is a configuration whose
-# wiring nobody has run.
-[mechanisms]
-evidence_archive = true
-
-[audit]
-retain_days = 1
 TOML
 
-[ -x "$BIN" ] || { echo "$BIN is not built; run \`cargo build -p bifrost-edge --bin bifrost\`" >&2; exit 2; }
+[ -x "$BIN" ] || { echo "$BIN is not built; run \`cargo build --release --bin bifrost\`" >&2; exit 2; }
 
 echo "starting $BIN on $BASE"
 # The binary is started as a child of this shell rather than of a subshell, so that
@@ -221,37 +211,10 @@ PY
 fi
 
 echo
-echo "== the archive and its retention =="
-# The pass runs at startup, before the first request is served, so its line is in the
-# log whether or not a turn was made. A journal line and a log line are both checked:
-# the pass records itself where the deletions can be read back, and says what it did
-# where an operator is already looking.
-if grep -q "pruned the archive" "$server_log"; then
-    pass "the startup pass ran and said what it found"
-else
-    fail "the startup pass left no line"
-fi
-if [ -f "$work/var/journal" ] && grep -q '"kind":"retention"' "$work/var/journal"; then
-    pass "the pass recorded itself in the journal"
-else
-    fail "the journal has no retention line"
-fi
-if [ "$GENERATE" = "1" ]; then
-    # A turn that ran with the archive on is a turn whose bytes are on disk and whose
-    # line names them, which is the mechanism the retention pass exists to bound.
-    blobs=$(find "$work/var/archive" -type f 2>/dev/null | wc -l)
-    if [ "$blobs" -ge 1 ] && grep -q '"kind":"turn"' "$work/var/journal"; then
-        pass "the turn was archived ($blobs blob(s)) and journalled"
-    else
-        fail "the turn left $blobs blob(s) in the archive"
-    fi
-fi
-
-echo
 echo "== the access line =="
-# One line per request, whichever endpoint answered it and however it ended. This is
-# the only place a turn's model, stream flag and key fingerprint are visible without
-# turning the evidence archive on, so a deployment can be read back after the fact.
+# One line per request, whichever endpoint answered it and however it ended. It is
+# where a turn's model, stream flag and key fingerprint are visible, so a deployment
+# can be read back after the fact.
 line_for() { grep -F "\"path\":\"$1\"" "$server_log" 2>/dev/null | tail -1 || true; }
 for path in /health /status /v1/models; do
     if [ -n "$(line_for "$path")" ]; then
@@ -457,89 +420,6 @@ else
     fail "the process was stopped without saying so"
 fi
 
-if [ "$GENERATE" = "1" ]; then
-    echo
-    echo "== reading the archive back =="
-    # The two commands an operator has instead of a directory layout, run after the
-    # stop so that nothing is writing to what they read.
-    read_back() { ( cd "$work" && "$start_dir/$BIN" "$@" --config "$work/bifrost.toml" ); }
-
-    if read_back --journal | grep -q '"kind":"turn"'; then
-        pass "--journal prints the turn the deployment answered"
-    else
-        fail "--journal printed no turn"
-    fi
-    if read_back --journal --kind retention | grep -q '"kind":"retention"'; then
-        pass "--journal --kind narrows the answer to one kind"
-    else
-        fail "--journal --kind retention printed nothing"
-    fi
-
-    # The digest is taken from the journal rather than computed here: what is being
-    # checked is that the two commands agree about the same deployment, which is the
-    # one thing a test with its own fixtures cannot show.
-    digest=$(read_back --journal | sed -n 's/.*"sha256":"\([0-9a-f]\{64\}\)".*/\1/p' | head -1)
-    if [ -n "$digest" ] && read_back --verify "$digest" | grep -q '^intact'; then
-        pass "--verify finds the bytes behind the digest the journal names"
-    else
-        fail "--verify did not find the bytes of ${digest:-<no digest in the journal>}"
-    fi
-
-    # A digest nothing was stored under is the answer retention leaves behind, and it
-    # has an exit code of its own rather than being reported as a failed claim.
-    absent_reference=$(printf 'f%.0s' $(seq 1 64))
-    if output=$(read_back --verify "$absent_reference"); then
-        fail "--verify answered 0 for a digest nothing is stored under"
-    else
-        status=$?
-        case "$status:$output" in
-            3:*gone*) pass "--verify answers 3/gone for a digest nothing is stored under" ;;
-            *) fail "--verify answered $status for an absent digest: $output" ;;
-        esac
-    fi
-
-    # The audit is the same question asked of every digest the journal names at once,
-    # and it is the one an operator runs after changing retention. This deployment
-    # prunes nothing, so a run that finds anything less than intact is a real finding
-    # rather than the retention it was told to use.
-    if audit=$(read_back --audit) &&
-        printf '%s\n' "$audit" | grep -q '^entries ' &&
-        printf '%s\n' "$audit" | grep -q 'intact [1-9]' &&
-        printf '%s\n' "$audit" | grep -q 'tampered 0, gone 0'; then
-        pass "--audit counts the whole journal and finds the turn's bytes intact"
-    else
-        fail "--audit did not find the archive intact: ${audit:-<no output>}"
-    fi
-
-    # Handing the turn over is the other half of keeping it: the line as it is stored, and
-    # then the bytes of both halves. The digest comes from the journal rather than from
-    # here for the same reason as above - what is being checked is that the commands agree
-    # about one deployment, and a check with its own fixture cannot show that.
-    handed=$(read_back --turn "$digest") || true
-    halves=$(printf '%s\n' "$handed" | grep -c '^intact' || true)
-    if printf '%s\n' "$handed" | grep -q '^{"timestamp"' &&
-        printf '%s\n' "$handed" | grep -q 'in request:' &&
-        [ "${halves:-0}" -ge 2 ]; then
-        pass "--turn hands over the turn's line and the bytes of both halves"
-    else
-        fail "--turn did not hand over both halves: ${handed:-<no output>}"
-    fi
-
-    # A session is the conversation a client was having, and the same selector reaches
-    # the lines and the bytes: two questions asked of one field.
-    session=$(read_back --journal | sed -n 's/.*"session":"\([^"]*\)".*/\1/p' | head -1)
-    if [ -n "$session" ] && read_back --journal --session "$session" | grep -q '"kind":"turn"'; then
-        pass "--journal --session narrows the answer to one conversation"
-    else
-        fail "--journal --session ${session:-<no session in the journal>} printed no turn"
-    fi
-    if [ -n "$session" ] && conversation=$(read_back --turn --session "$session") &&
-        printf '%s\n' "$conversation" | grep -q 'in request:'; then
-        pass "--turn --session hands over the conversation's turns"
-    else
-        fail "--turn --session did not hand over the conversation: ${conversation:-<no output>}"
-    fi
-fi
 
 echo
 echo "== the server's own log =="

@@ -13,7 +13,7 @@ api_base = "https://api.commandcode.ai"
 # derived from it, and so is the fingerprint's view of where the work happens, so
 # the three cannot disagree. Leave `project_dir` out to use the built-in profile;
 # the original reads the same setting from CC_DEVICE_PROJECT_DIR. No path is shown
-# here on purpose: the built-in one lives in bifrost-fingerprint, and a copy of it
+# here on purpose: the built-in one lives in the fingerprint module, and a copy of it
 # in this file would be a second thing to keep in step.
 
 [wire]
@@ -119,13 +119,6 @@ fingerprint = true
 lifecycle = true
 # Per-key session id with expiry and jitter.
 session = true
-# Keep each turn's original bytes under [audit].archive_dir, with one JSONL line
-# per finished turn in [audit].journal_dir. Off by default because it writes to
-# disk. A failed write is logged, never raised, and a stream is kept up to 8 MB
-# and flagged truncated past that. The archive is pruned at startup and daily
-# according to [audit].retain_days and [audit].max_total_mb; retention applies only
-# to the archive never to the journal, and leaves everything alone while both are 0.
-evidence_archive = false
 # Turn a client's prompt_cache_key into a cache breakpoint on the last system
 # section, when the client did not mark one itself.
 prompt_cache = false
@@ -136,12 +129,6 @@ timeout_context_hint = false
 [fingerprint]
 # Rotates the derived device identity in bulk. Empty means the built-in rule.
 salt = ""
-
-[audit]
-# Append-only JSONL decision log.
-journal_dir = "var/journal"
-# Content-addressed blob store.
-archive_dir = "var/archive"
 
 [telemetry]
 # error, warn, info or debug. A filter rather than a label: a message that does

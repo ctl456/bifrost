@@ -96,45 +96,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
-name = "bifrost-audit"
-version = "0.1.0"
-dependencies = [
- "hex",
- "serde",
- "serde_json",
- "sha2",
- "time",
-]
-
-[[package]]
-name = "bifrost-config"
-version = "0.1.0"
-dependencies = [
- "serde",
- "thiserror",
- "toml",
-]
-
-[[package]]
-name = "bifrost-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "bifrost-edge"
+name = "bifrost"
 version = "0.1.0"
 dependencies = [
  "axum",
- "bifrost-audit",
- "bifrost-config",
- "bifrost-core",
- "bifrost-fingerprint",
- "bifrost-protocol",
- "bifrost-wire",
  "futures-util",
  "getrandom 0.4.3",
  "hex",
@@ -142,43 +107,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "thiserror",
  "time",
  "tokio",
-]
-
-[[package]]
-name = "bifrost-fingerprint"
-version = "0.1.0"
-dependencies = [
- "hex",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "bifrost-protocol"
-version = "0.1.0"
-dependencies = [
- "bifrost-core",
- "bifrost-fingerprint",
- "bifrost-wire",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "bifrost-wire"
-version = "0.1.0"
-dependencies = [
- "bifrost-config",
- "bifrost-core",
- "bifrost-fingerprint",
- "hex",
- "serde_json",
- "sha2",
- "time",
+ "toml",
 ]
 
 [[package]]
