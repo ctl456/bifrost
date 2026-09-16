@@ -71,7 +71,7 @@ fn main() -> ExitCode {
         Command::Verify { config, digest, quote } => {
             verified(cli::verify(config.as_deref(), &digest, quote.as_deref()))
         }
-        Command::Serve => serve(),
+        Command::Serve { config } => serve(config.as_deref()),
     }
 }
 
@@ -150,8 +150,8 @@ fn handed(answer: Result<u8, String>) -> ExitCode {
 
 /// Run the gateway until it is asked to stop.
 #[tokio::main]
-async fn serve() -> ExitCode {
-    let config = match bifrost_config::load() {
+async fn serve(path: Option<&std::path::Path>) -> ExitCode {
+    let config = match bifrost_config::load_from(path) {
         Ok(config) => config,
         Err(error) => {
             // The level comes from the configuration, so this one is written

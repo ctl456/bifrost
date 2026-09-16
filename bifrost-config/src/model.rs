@@ -1,5 +1,6 @@
 //! The configuration schema.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -281,6 +282,17 @@ pub struct ModelsConfig {
     pub refresh_ms: u64,
     /// How long a fetch may take before the built-in table is used instead.
     pub timeout_ms: u64,
+    /// Rules that point a client's model name at one this account may use.
+    ///
+    /// A name no rule matches is forwarded as the client spelled it, refusal and
+    /// all: the upstream's answer about a model it does not serve is the true
+    /// answer, and a silent substitution would turn a typo into an answer from
+    /// another model.
+    ///
+    /// Not serialized when empty, so a printed configuration reads back as the
+    /// configuration it was printed from instead of gaining an empty table.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub aliases: BTreeMap<String, String>,
 }
 
 impl Default for ModelsConfig {
@@ -289,6 +301,7 @@ impl Default for ModelsConfig {
             provider: true,
             refresh_ms: 5 * 60 * 1000,
             timeout_ms: 10_000,
+            aliases: BTreeMap::new(),
         }
     }
 }
@@ -302,6 +315,26 @@ impl ModelsConfig {
     #[must_use]
     pub const fn timeout(&self) -> Duration {
         Duration::from_millis(self.timeout_ms)
+    }
+
+    /// The model to send in place of `requested`, when a rule covers that name.
+    ///
+    /// A rule covers a name when the name begins with the rule's pattern, ASCII
+    /// case-insensitively, and the longest matching pattern wins: with `claude-`
+    /// and `claude-haiku-` both configured, `claude-haiku-4-5` resolves through
+    /// the second, which is the rule that named it. An exact pattern is the
+    /// longest pattern that can match its own name, so it needs no special case.
+    ///
+    /// Nothing matched means nothing to change, rather than a default: this is
+    /// the whole mechanism, and it invents no names.
+    #[must_use]
+    pub fn resolve(&self, requested: &str) -> Option<&str> {
+        let lower = requested.to_ascii_lowercase();
+        self.aliases
+            .iter()
+            .filter(|(pattern, _)| !pattern.is_empty() && lower.starts_with(&pattern.to_ascii_lowercase()))
+            .max_by_key(|(pattern, _)| pattern.len())
+            .map(|(_, model)| model.as_str())
     }
 }
 

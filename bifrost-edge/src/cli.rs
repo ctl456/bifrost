@@ -34,7 +34,7 @@ use time::format_description::well_known::Rfc3339;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     /// Serve.
-    Serve,
+    Serve { config: Option<PathBuf> },
     /// Answer whether this configuration can be started with, and exit.
     Check { config: Option<PathBuf> },
     /// Print the resolved configuration, and exit.
@@ -240,7 +240,7 @@ impl Command {
             return Err(usage_error("--quote only means something with --verify"));
         }
         Ok(match mode {
-            Mode::Serve => Command::Serve,
+            Mode::Serve => Command::Serve { config },
             Mode::Check => Command::Check { config },
             Mode::PrintConfig => Command::PrintConfig { config },
             Mode::Journal => Command::Journal {
@@ -281,13 +281,14 @@ impl Command {
     #[must_use]
     pub fn config_path(&self) -> Option<&Path> {
         match self {
-            Command::Check { config }
+            Command::Serve { config }
+            | Command::Check { config }
             | Command::PrintConfig { config }
             | Command::Journal { config, .. }
             | Command::Audit { config, .. }
             | Command::Turn { config, .. }
             | Command::Verify { config, .. } => config.as_deref(),
-            Command::Serve | Command::Help => None,
+            Command::Help => None,
         }
     }
 }
@@ -779,7 +780,16 @@ mod tests {
 
     #[test]
     fn no_arguments_is_the_server() {
-        assert_eq!(parse(&[]).expect("parses"), Command::Serve);
+        assert_eq!(parse(&[]).expect("parses"), Command::Serve { config: None });
+    }
+
+    /// A file the operator named is the file the *serving* process reads, not only
+    /// the one the read-back commands read: an argument that is accepted and then
+    /// ignored would leave a service running a configuration nobody chose.
+    #[test]
+    fn a_named_file_serves_from_that_file() {
+        let command = parse(&["--config", "/etc/bifrost/other.toml"]).expect("parses");
+        assert_eq!(command.config_path(), Some(Path::new("/etc/bifrost/other.toml")));
     }
 
     #[test]

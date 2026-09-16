@@ -93,7 +93,7 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 
 | 客户端 | 要设置什么 |
 |---|---|
-| Claude Code | `ANTHROPIC_BASE_URL=http://127.0.0.1:3050`、`ANTHROPIC_API_KEY=user_…`，再把 `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` 指向账号里有的模型 |
+| Claude Code | `ANTHROPIC_BASE_URL=http://127.0.0.1:3050`、`ANTHROPIC_API_KEY=user_…`，再把 `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` 指向账号里有的模型；或者写一条规则，客户端自己的默认值就不用动 |
 | Codex CLI | 一个 provider：`base_url = "http://127.0.0.1:3050/v1"`、`wire_api = "responses"`、`env_key = "…"` |
 | Anthropic SDK | `base_url` / `ANTHROPIC_BASE_URL`，再加 `x-api-key` 或 `auth_token` |
 | OpenAI SDK | `base_url = http://127.0.0.1:3050/v1` |
@@ -101,8 +101,25 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 
 有两件事决定一个客户端到底能不能用，而不是它的协议看起来能不能用：
 
-- **模型名。** Bifrost 原样转发客户端点名的模型。默认写 `claude-sonnet-5` 的客户端就会去要 `claude-sonnet-5`；这个模型不在套餐里，账号会回 `401 MODEL_NOT_IN_PLAN`。把客户端的模型设置指向 `GET /v1/models` 列出来的东西。
+- **模型名。** Bifrost 原样转发客户端点名的模型。默认写 `claude-sonnet-5` 的客户端就会去要 `claude-sonnet-5`；这个模型不在套餐里，账号会回 `401 MODEL_NOT_IN_PLAN`。要么把客户端的模型设置指向 `GET /v1/models` 列出来的东西，要么写一条规则，让客户端的默认值原样留着。
 - **上游只有流式。** 不论客户端要什么，Bifrost 都会向上游要流，客户端没要流式时由它自己拼成完整响应。客户端的 `stream` 标志不会传到上游。
+
+### 把模型名指到别处
+
+有些客户端改不了它要什么，也有些客户端要的名字会跟着工具版本一起变。`[models.aliases]` 里的一条规则，就是把它们要的名字接到本账号可用的模型上：
+
+```toml
+[models.aliases]
+"claude-" = "deepseek/deepseek-v4-flash"
+"claude-sonnet-5" = "deepseek/deepseek-v4-pro"
+```
+
+- 规则是前缀匹配，比较时不分大小写，命中的规则里**最长的那条赢**：`claude-sonnet-5` 走上面第二条，`claude-opus-4-6` 走第一条。精确的名字本来就「最长」——它能匹配自己——所以不需要单独一条精确匹配的逻辑。
+- 没有规则命中的名字按客户端写的那样转发，所以拼错的名字仍然是上游的 `401 MODEL_NOT_IN_PLAN`，而不是变成另一个模型的回答。这里没有通配、也没有兜底模型：规则表不是 fallback。
+- 改写发生在请求编码之前，这样才能让一个回合里出现的三个名字保持一致：上游被要的是新名字、响应里回的也是这个名字、访问日志两个都记——`model=` 是实际用的，`requested_model=` 是客户端要的。
+- `evidence_archive` 归档的是客户端自己的原始字节，所以一条规则哪天被怀疑，客户端真正发的名字还在档案里。
+- `GET /v1/models` 不受影响：它回答的是这个账号能被要什么，不是客户端能发什么。
+- 空 pattern、或者没指向任何模型的规则会直接拒绝加载：一条「看起来只有一条、实际匹配所有名字」的规则，是靠读配置读不出来的坑。
 
 ### 端点
 
@@ -117,7 +134,7 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 
 ## 运维
 
-它说的话只去一个地方：默认每行一个 JSON 对象，`log_format = "text"` 时每行一条纯文本。每个请求都留一行——方法、路径、状态、首字节耗时，等到信息齐了还有协议、模型、流式标志和 key 指纹。**key 本身永远不进日志。**
+它说的话只去一个地方：默认每行一个 JSON 对象，`log_format = "text"` 时每行一条纯文本。每个请求都留一行——方法、路径、状态、首字节耗时，等到信息齐了还有协议、模型、流式标志和 key 指纹。被规则指到别的模型的回合两个名字都记：`model` 是实际回答的，`requested_model` 是客户端要的。**key 本身永远不进日志。**
 
 `GET /status` 用计数器回答这个进程一直在干什么，不需要 key：这是把「没有请求进来」和「请求进来但没工作」分开的办法。
 
@@ -142,7 +159,7 @@ systemd 下 `deploy/bifrost.service` 以非特权用户运行它，只给一个 
 | 现象 | 是什么 |
 |---|---|
 | `Missing API key` | `Authorization: Bearer` 或 `x-api-key` 里没有 `user_…` token |
-| `401 MODEL_NOT_IN_PLAN` | 模型是真的，但不在此账号套餐内；错误来自上游，并按客户端自己的错误形状返回。从 `/v1/models` 里挑一个 |
+| `401 MODEL_NOT_IN_PLAN` | 模型是真的，但不在此账号套餐内；错误来自上游，并按客户端自己的错误形状返回。从 `/v1/models` 里挑一个，或者写一条规则把这个名字指过去 |
 | 客户端卡住然后超时 | 推理模型在出第一个 token 之前一直在想。`/v1/messages` 专门为此发注释帧心跳；不接受这种帧的客户端仍然会超时 |
 | 预请求被拒 | 它永远不会让回合失败，所以任何响应里都看不到痕迹——去日志里找那条 warn。另外记住：少了 `User-Agent` 会在看路径之前就拿到 `403` |
 | `--verify` 回 `3` | 保留策略删掉了这些字节；journal 那行仍然说明了当时发生了什么 |

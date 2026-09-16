@@ -65,6 +65,22 @@ refresh_ms = 300000
 # How long a fetch may take before the previous catalogue is served instead.
 timeout_ms = 10000
 
+# Rules that point a client's model name at one this account may use, for the
+# clients that cannot be told what to ask for: a tool whose default is
+# `claude-sonnet-5` asks for exactly that, and this account answers
+# `401 MODEL_NOT_IN_PLAN`. A rule matches when the client's name begins with the
+# pattern, compared without regard to case, and the longest matching pattern wins,
+# so a rule for a whole family and a rule for one member of it can sit together.
+#
+# A name no rule matches is forwarded as the client spelled it. Nothing here
+# invents a model: a typo stays the upstream's refusal rather than becoming
+# another model's answer, and the name the upstream is asked for is the name the
+# response reports and the access line records.
+#
+# [models.aliases]
+# "claude-" = "deepseek/deepseek-v4-flash"
+# "claude-sonnet-5" = "deepseek/deepseek-v4-pro"
+
 [mechanisms]
 # Report this deployment's derived device identity to the upstream. The identity
 # is a deterministic function of the key whether or not this is on; what this

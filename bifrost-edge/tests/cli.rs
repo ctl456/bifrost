@@ -5,8 +5,9 @@
 //! exit code produced by a function nothing calls is not the one systemd would see.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use bifrost_audit::{ArchiveRef, ArchiveStore, KIND_REQUEST, KIND_UPSTREAM_RESPONSE};
 use bifrost_config::{Config, REDACTED};
@@ -194,6 +195,62 @@ fn printing_the_configuration_shows_the_layers_that_were_applied() {
     let config = Config::from_toml_str(&printed).expect("what is printed is a configuration");
     assert_eq!(config.port, 4055);
     assert_eq!(config.api_base, "https://other.test");
+}
+
+/// A serving process reads the file `--config` names.
+///
+/// The check is the one an operator would notice: the file is invalid, so a process
+/// that read it must fail before it listens, and name the setting. A process that
+/// ignored the argument would serve the defaults instead — and would then be found
+/// only by whoever wondered why the rules in that file did nothing.
+#[test]
+fn a_serving_process_reads_the_file_config_names() {
+    let file = write("port = 0\n");
+    let mut child = Command::new(BIN)
+        .env_clear()
+        .args(["--config", path_of(&file)])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the binary runs");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut exited = None;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait().expect("wait") {
+            exited = Some(status);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if exited.is_none() {
+        let _ = child.kill();
+        panic!("an ignored --config left the process serving the defaults");
+    }
+    let output = child.wait_with_output().expect("the output of a process that exited");
+    assert_ne!(output.status.code(), Some(0));
+    assert!(
+        stderr(&output).contains("port"),
+        "the setting is named: {}",
+        stderr(&output)
+    );
+}
+
+/// A rule table survives being printed and read back, so the configuration an
+/// operator inspects is the configuration that is running.
+#[test]
+fn printing_the_configuration_keeps_the_model_rules() {
+    let file = write("[models.aliases]\n\"claude-\" = \"deepseek/deepseek-v4-flash\"\n");
+    let output = run(&["--print-config", "--config", path_of(&file)], &[]);
+
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let printed = stdout(&output);
+    assert!(printed.contains("claude-"), "the rule is in what is printed: {printed}");
+    let config = Config::from_toml_str(&printed).expect("what is printed is a configuration");
+    assert_eq!(
+        config.models.resolve("claude-sonnet-5"),
+        Some("deepseek/deepseek-v4-flash")
+    );
 }
 
 #[test]

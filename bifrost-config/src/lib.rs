@@ -141,6 +141,22 @@ impl Config {
                 "models.timeout_ms must be greater than 0".to_owned(),
             ));
         }
+        // An empty pattern matches every name, so a rule that has one would
+        // rewrite the whole catalogue while looking like a single entry; and a
+        // rule that names no model has nothing to send. Both are typos, and both
+        // would only be visible as the wrong model answering.
+        for (pattern, model) in &self.models.aliases {
+            if pattern.trim().is_empty() {
+                return Err(ConfigError::Invalid(
+                    "models.aliases must not contain an empty pattern: it would match every model".to_owned(),
+                ));
+            }
+            if model.trim().is_empty() {
+                return Err(ConfigError::Invalid(format!(
+                    "models.aliases entry {pattern:?} must name a model"
+                )));
+            }
+        }
         // The upper bounds are typos caught early rather than policy: a retention
         // longer than ten years is a mistyped digit, and so is a ceiling of a
         // petabyte — and both are only discovered by the pass that has already

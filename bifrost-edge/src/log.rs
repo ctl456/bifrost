@@ -93,7 +93,14 @@ pub struct Access {
 #[derive(Debug, Clone, Default)]
 pub struct Detail {
     pub protocol: Option<String>,
+    /// The model the turn was served by, which is the client's own name unless a
+    /// rule in this deployment's configuration points it somewhere else.
     pub model: Option<String>,
+    /// The name the client asked for, present only when it is not the name the
+    /// turn used. Both are recorded because they answer different questions:
+    /// `model` is what the answer came from, and this is what the client will
+    /// look for when it wonders why it got that answer.
+    pub requested_model: Option<String>,
     pub stream: Option<bool>,
     pub key_fingerprint: Option<String>,
 }
@@ -121,6 +128,7 @@ fn render_access(entry: &Access, format: LogFormat, at: &str) -> String {
             "ms": entry.ms,
             "protocol": entry.detail.protocol,
             "model": entry.detail.model,
+            "requested_model": entry.detail.requested_model,
             "stream": entry.detail.stream,
             "key": entry.detail.key_fingerprint,
         })
@@ -135,6 +143,9 @@ fn access_pairs(detail: &Detail) -> Vec<(&'static str, String)> {
     }
     if let Some(model) = &detail.model {
         pairs.push(("model", model.clone()));
+    }
+    if let Some(requested) = &detail.requested_model {
+        pairs.push(("requested_model", requested.clone()));
     }
     if let Some(stream) = detail.stream {
         pairs.push(("stream", stream.to_string()));
@@ -252,7 +263,7 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
                 r#"model=deepseek/deepseek-v4-flash stream=true key=0123456789abcdef","#,
                 r#""method":"POST","path":"/v1/chat/completions","status":200,"ms":1234,"#,
                 r#""protocol":"openai-chat","model":"deepseek/deepseek-v4-flash","#,
-                r#""stream":true,"key":"0123456789abcdef"}"#
+                r#""requested_model":null,"stream":true,"key":"0123456789abcdef"}"#
             )
         );
     }
@@ -277,7 +288,7 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
             concat!(
                 r#"{"time":"2026-09-15T12:00:00Z","level":"info","msg":"GET /health 200 0ms","#,
                 r#""method":"GET","path":"/health","status":200,"ms":0,"#,
-                r#""protocol":null,"model":null,"stream":null,"key":null}"#
+                r#""protocol":null,"model":null,"requested_model":null,"stream":null,"key":null}"#
             )
         );
     }
@@ -292,6 +303,34 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
         assert!(line.ends_with("key=0123456789abcdef"));
     }
 
+    /// A turn a rule pointed at another model records what was asked for beside
+    /// what answered: `model` is the name the answer came from, and the pair is
+    /// what explains a client's question about why it got that answer.
+    #[test]
+    fn a_rewritten_model_is_recorded_beside_the_one_that_answered() {
+        let entry = Access {
+            detail: Detail {
+                model: Some("deepseek/deepseek-v4-flash".to_owned()),
+                requested_model: Some("claude-sonnet-5".to_owned()),
+                ..worked().detail
+            },
+            ..worked()
+        };
+        assert_eq!(
+            render_access(&entry, LogFormat::Text, "2026-09-15T12:00:00Z"),
+            concat!(
+                "2026-09-15T12:00:00Z info  POST /v1/chat/completions 200 1234ms ",
+                "protocol=openai-chat model=deepseek/deepseek-v4-flash ",
+                "requested_model=claude-sonnet-5 stream=true key=0123456789abcdef"
+            )
+        );
+        assert!(
+            render_access(&entry, LogFormat::Json, "2026-09-15T12:00:00Z")
+                .contains(r#""requested_model":"claude-sonnet-5""#),
+            "a collector reads the name that was asked for as a field of its own"
+        );
+    }
+
     fn worked() -> Access {
         Access {
             method: "POST".to_owned(),
@@ -301,6 +340,7 @@ protocol=openai-chat model=deepseek/deepseek-v4-flash stream=true key=0123456789
             detail: Detail {
                 protocol: Some("openai-chat".to_owned()),
                 model: Some("deepseek/deepseek-v4-flash".to_owned()),
+                requested_model: None,
                 stream: Some(true),
                 key_fingerprint: Some("0123456789abcdef".to_owned()),
             },

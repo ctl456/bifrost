@@ -42,6 +42,7 @@ fn defaults_match_the_documented_values() {
     assert!(config.models.provider);
     assert_eq!(config.models.refresh_ms, 300_000);
     assert_eq!(config.models.timeout_ms, 10_000);
+    assert!(config.models.aliases.is_empty(), "no rules means no rewriting");
     assert_eq!(config.telemetry.log_level, LogLevel::Info);
     assert_eq!(config.telemetry.log_format, LogFormat::Json);
     config.validate().expect("defaults are valid");
@@ -246,6 +247,69 @@ fn zdr_accepts_the_spellings_the_proxy_used() {
         let config = with_env(Config::default(), &[("CMD_ZDR", value)]);
         assert!(!config.wire.zdr, "CMD_ZDR={value} should not enable zdr");
     }
+}
+
+/// A rule points a name a client asks for at a model the account is served.
+///
+/// The longest matching pattern wins, which is the whole of the semantics: a
+/// family rule must not swallow the member of that family which has a rule of its
+/// own, and an exact pattern is the longest pattern that can match its own name.
+#[test]
+fn a_model_rule_rewrites_the_names_it_matches() {
+    let config = Config::from_toml_str(
+        r#"
+        [models.aliases]
+        "claude-" = "deepseek/deepseek-v4-flash"
+        "claude-haiku-" = "deepseek/deepseek-v4-pro"
+        "gpt-5.4" = "deepseek/deepseek-v4-pro"
+        "#,
+    )
+    .expect("parses");
+
+    assert_eq!(
+        config.models.resolve("claude-opus-4-6"),
+        Some("deepseek/deepseek-v4-flash")
+    );
+    assert_eq!(
+        config.models.resolve("claude-haiku-4-5-20251001"),
+        Some("deepseek/deepseek-v4-pro"),
+        "the rule that named this model is the one that answers for it"
+    );
+    assert_eq!(config.models.resolve("gpt-5.4"), Some("deepseek/deepseek-v4-pro"));
+    assert_eq!(config.models.resolve("gpt-5.4-mini"), Some("deepseek/deepseek-v4-pro"));
+    assert_eq!(
+        config.models.resolve("Claude-Haiku-4-5"),
+        Some("deepseek/deepseek-v4-pro"),
+        "a client's capitalisation is not a different model"
+    );
+    assert_eq!(
+        config.models.resolve("claude"),
+        None,
+        "a prefix is a prefix: it does not match a name that stops short of it"
+    );
+    assert_eq!(
+        config.models.resolve("gpt-5.4x"),
+        Some("deepseek/deepseek-v4-pro"),
+        "and a name that runs past it is still covered"
+    );
+    assert_eq!(
+        config.models.resolve("deepseek/deepseek-v4-flash"),
+        None,
+        "an unmapped name is left for the upstream to answer for"
+    );
+
+    assert_eq!(Config::default().models.resolve("claude-sonnet-5"), None);
+}
+
+/// A rule that matches everything, or sends nothing, is a typo that would only be
+/// visible as the wrong model answering, so it never loads.
+#[test]
+fn a_model_rule_that_could_not_name_a_model_is_rejected() {
+    assert!(Config::from_toml_str("[models.aliases]\n\"\" = \"deepseek/deepseek-v4-flash\"\n").is_err());
+    assert!(Config::from_toml_str("[models.aliases]\n\"claude-\" = \"\"\n").is_err());
+    assert!(Config::from_toml_str("[models.aliases]\n\"claude-\" = \"   \"\n").is_err());
+    Config::from_toml_str("[models.aliases]\n\"claude-\" = \"deepseek/deepseek-v4-flash\"\n")
+        .expect("a rule that names a model loads");
 }
 
 #[test]

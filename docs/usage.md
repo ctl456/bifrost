@@ -119,7 +119,7 @@ The `user_…` token is what matters in the header; prefixes around it are toler
 
 | Client | What to set |
 |---|---|
-| Claude Code | `ANTHROPIC_BASE_URL=http://127.0.0.1:3050`, `ANTHROPIC_API_KEY=user_…`, and `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` pointing at a model the account has |
+| Claude Code | `ANTHROPIC_BASE_URL=http://127.0.0.1:3050`, `ANTHROPIC_API_KEY=user_…`, and `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` pointing at a model the account has — or a rule, which leaves the client's defaults alone |
 | Codex CLI | a provider with `base_url = "http://127.0.0.1:3050/v1"`, `wire_api = "responses"`, `env_key = "…"` |
 | Anthropic SDK | `base_url` / `ANTHROPIC_BASE_URL` plus `x-api-key` or `auth_token` |
 | OpenAI SDK | `base_url = http://127.0.0.1:3050/v1` |
@@ -129,11 +129,43 @@ Two things decide whether a client works where its protocol suggests it should:
 
 - **The model name.** Bifrost forwards the model the client names. A client whose
   default is `claude-sonnet-5` will ask for `claude-sonnet-5`, and the account will
-  answer `401 MODEL_NOT_IN_PLAN` if that model is not in the plan. Point the
-  client's model setting at something `GET /v1/models` lists for this key.
+  answer `401 MODEL_NOT_IN_PLAN` if that model is not in the plan. Either point the
+  client's model setting at something `GET /v1/models` lists for this key, or write
+  a rule and leave the client's own defaults alone.
 - **The upstream is streaming-only.** For every client, Bifrost asks the upstream
   for a stream and assembles a whole body itself when the client did not ask for
   one. Nothing about the client's `stream` flag reaches upstream.
+
+### Pointing a model name somewhere else
+
+Some clients cannot be told what to ask for, or ask under a name that moves with
+every release of the tool. A rule in `[models.aliases]` maps the name they ask for
+onto one this account may use:
+
+```toml
+[models.aliases]
+"claude-" = "deepseek/deepseek-v4-flash"
+"claude-sonnet-5" = "deepseek/deepseek-v4-pro"
+```
+
+- The pattern is a prefix, compared without regard to case, and the longest pattern
+  that matches wins: `claude-sonnet-5` is served by the second rule above and
+  `claude-opus-4-6` by the first. An exact name is just the longest pattern that can
+  match itself, so it needs no special case.
+- A name no rule matches is forwarded as the client spelled it, so a typo stays the
+  upstream's `401 MODEL_NOT_IN_PLAN` instead of becoming another model's answer.
+  There is no catch-all and no default model: a rule table is not a fallback.
+- The rewrite happens before the request is encoded, which is what keeps the three
+  names involved in agreement: the upstream is asked for the new name, the response
+  reports that same name, and the access line records both of them — the name that
+  answered as `model=`, the name that was asked for as `requested_model=`.
+- The request bytes archived under `evidence_archive` are the client's own, so the
+  name it really sent is still there if a rule is ever in question.
+- `GET /v1/models` is unaffected: it answers what the account may be asked for, not
+  what a client may send.
+- A rule with an empty pattern, or one that names no model, refuses to load: a rule
+  that matched every name while looking like a single entry is a typo nobody would
+  find by reading it.
 
 ### Endpoints
 
@@ -151,7 +183,9 @@ Two things decide whether a client works where its protocol suggests it should:
 Everything it says goes to one log: one JSON object per line by default, or one
 plain line per event with `log_format = "text"`. Every request leaves a line — the
 method, path, status, time to first byte, and then the protocol, model, stream flag
-and key fingerprint once those are known. **The key itself is never logged.**
+and key fingerprint once those are known. A turn a rule pointed at another model
+records both names — `model` is what answered, `requested_model` is what was asked
+for. **The key itself is never logged.**
 
 `GET /status` answers what this process has been doing, as counts, with no key
 needed: that is how "nothing is arriving" is told from "nothing is working".
@@ -189,7 +223,7 @@ Install steps are in the unit's own header.
 | Symptom | What it is |
 |---|---|
 | `Missing API key` | no `user_…` token in `Authorization: Bearer` or `x-api-key` |
-| `401 MODEL_NOT_IN_PLAN` | the model is real but not in this account's plan; the error comes from the upstream, in the client's own error shape. Pick one from `/v1/models` |
+| `401 MODEL_NOT_IN_PLAN` | the model is real but not in this account's plan; the error comes from the upstream, in the client's own error shape. Pick one from `/v1/models`, or write a rule that points this name at one of them |
 | A client hangs, then times out | a reasoning model thinking before its first token. `/v1/messages` sends comment-frame heartbeats for exactly this; a client that cannot tolerate them will still time out |
 | A pre-flight is being refused | it never fails a turn, so it leaves no trace in any response — look at the log for the warning, and remember a missing `User-Agent` gets a `403` before the path is even read |
 | `--verify` answers `3` | retention removed those bytes; the journal line still says what happened |

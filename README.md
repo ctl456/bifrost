@@ -38,14 +38,16 @@ principle:
 
 | Client | What to set |
 |---|---|
-| Claude Code | `ANTHROPIC_BASE_URL=http://127.0.0.1:3050`, `ANTHROPIC_API_KEY=user_…`, `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_HAIKU_MODEL` pointing at a model the account has |
+| Claude Code | `ANTHROPIC_BASE_URL=http://127.0.0.1:3050`, `ANTHROPIC_API_KEY=user_…`, and `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` pointing at a model the account has — or a `[models.aliases]` rule, which leaves the client's own defaults alone |
 | Codex CLI | a provider with `base_url = "http://127.0.0.1:3050/v1"`, `wire_api = "responses"`, `env_key = "…"` |
 | OpenAI SDK | `base_url = http://127.0.0.1:3050/v1` |
 | Anthropic SDK | `base_url` plus `x-api-key` or `auth_token` |
 
-The model name is the client's to get right: Bifrost forwards what it is asked for,
-and an account that does not have that model answers `401 MODEL_NOT_IN_PLAN`. Ask
-`GET /v1/models` for what this key may actually use.
+The model name is the client's to get right: an account that does not have the
+model it is asked for answers `401 MODEL_NOT_IN_PLAN`. Ask `GET /v1/models` for what
+this key may actually use, either to point the client at one of them or to write a
+`[models.aliases]` rule that points the client's own name there. Bifrost rewrites
+nothing on its own: a name no rule matches is forwarded as it arrived.
 
 The official `cmdc` client is not one of them: it talks the `/alpha/*` protocol, and
 Bifrost serves the three public protocols instead. That is the direction of the
@@ -330,7 +332,9 @@ it and `telemetry.log_format` chooses one JSON object per line or one plain line
 per event. Every request gets a line of its own, including the ones that reached no
 endpoint, and it carries what the turn knew when it answered — the method, the path,
 the status, the time it took to begin, and then the protocol, the model, the stream
-flag and the fingerprint of the key it was billed to, once it had got that far. The
+flag and the fingerprint of the key it was billed to, once it had got that far. A
+turn a rule pointed at another model records both: `model` is what answered, and
+`requested_model` is what the client asked for. The
 key itself never appears; a log is read by more people than the key is given to.
 `GET /status` answers what this process has been doing, as counts: how long it has
 been up, how many turns it answered, and how many requests it refused and for which

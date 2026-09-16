@@ -700,6 +700,128 @@ async fn a_complete_answer_crosses_both_conversions() {
     );
 }
 
+/// The edge, with one deployment's model rules in force.
+///
+/// The rules are the shape a person writes for a client that asks by version: a
+/// family prefix for the models that have to go somewhere, and the one exact name
+/// in that family that has somewhere else to go.
+fn aliasing(api_base: &str) -> Config {
+    Config {
+        api_base: api_base.to_owned(),
+        models: ModelsConfig {
+            aliases: [
+                ("claude-".to_owned(), "deepseek/deepseek-v4-flash".to_owned()),
+                ("claude-sonnet-5".to_owned(), "deepseek/deepseek-v4-pro".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+            ..ModelsConfig::default()
+        },
+        ..Config::default()
+    }
+}
+
+/// A client that names a model this account is not served is pointed at one it is,
+/// by a rule the deployment wrote rather than by a guess.
+///
+/// The rule rewrites the request itself, which is the only way the three names a
+/// turn involves can agree: the model the upstream is asked for, the model the
+/// response reports, and the model the access line records as used.
+#[tokio::test]
+async fn a_model_rule_rewrites_the_model_the_upstream_is_asked_for() {
+    let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let edge = serve(aliasing(&upstream)).await;
+
+    let response = client()
+        .post(format!("{edge}/v1/messages"))
+        .header("x-api-key", "user_abc123")
+        .json(&json!({
+            "model": "claude-haiku-4-5",
+            "max_tokens": 64,
+            "messages": [{ "role": "user", "content": "hi" }],
+        }))
+        .send()
+        .await
+        .expect("send");
+
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(
+        body["model"],
+        json!("deepseek/deepseek-v4-flash"),
+        "the answer is attributed to the model that produced it, not to the one that was asked for"
+    );
+
+    let received = received.lock().expect("record");
+    assert_eq!(
+        received.last(GENERATE).body["params"]["model"],
+        json!("deepseek/deepseek-v4-flash")
+    );
+}
+
+/// The longest rule that covers a name answers for it, so a family prefix does not
+/// swallow the member of that family which has a rule of its own.
+#[tokio::test]
+async fn the_most_specific_model_rule_is_the_one_that_answers() {
+    let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let edge = serve(aliasing(&upstream)).await;
+
+    let response = client()
+        .post(format!("{edge}/v1/chat/completions"))
+        .header("authorization", "Bearer user_abc123")
+        .json(&json!({ "model": "claude-sonnet-5", "messages": [{ "role": "user", "content": "hi" }] }))
+        .send()
+        .await
+        .expect("send");
+
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["model"], json!("deepseek/deepseek-v4-pro"));
+    let received = received.lock().expect("record");
+    assert_eq!(
+        received.last(GENERATE).body["params"]["model"],
+        json!("deepseek/deepseek-v4-pro")
+    );
+}
+
+/// A name no rule covers goes out as the client spelled it, and the upstream's
+/// refusal is the client's answer: a rule table is not a default model, and a
+/// substitution made here would be an answer to a question nobody asked.
+#[tokio::test]
+async fn an_unmapped_model_is_forwarded_and_refused_by_the_upstream() {
+    let (upstream, received) = upstream(|| {
+        (
+            400,
+            json!({
+                "success": false,
+                "error": { "code": "MODEL_NOT_IN_PLAN", "message": "gpt-5.4-mini is not in this plan" },
+            })
+            .to_string(),
+            "application/json",
+        )
+    })
+    .await;
+    let edge = serve(aliasing(&upstream)).await;
+
+    let response = client()
+        .post(format!("{edge}/v1/chat/completions"))
+        .header("authorization", "Bearer user_abc123")
+        .json(&json!({ "model": "gpt-5.4-mini", "messages": [{ "role": "user", "content": "hi" }] }))
+        .send()
+        .await
+        .expect("send");
+
+    assert_eq!(response.status(), 400);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["error"]["code"], json!("MODEL_NOT_IN_PLAN"));
+    let received = received.lock().expect("record");
+    assert_eq!(
+        received.last(GENERATE).body["params"]["model"],
+        json!("gpt-5.4-mini"),
+        "the upstream was asked about the model the client named"
+    );
+}
+
 #[tokio::test]
 async fn a_stream_is_committed_by_its_first_visible_frame() {
     let (upstream, _) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;

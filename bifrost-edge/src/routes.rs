@@ -268,7 +268,8 @@ async fn serve_turn(
             return error_response(protocol.shape, &error.into_error());
         }
     };
-    let request = decoded.value;
+    let mut request = decoded.value;
+    detail.requested_model = apply_model_alias(edge.as_ref(), &mut request);
     // Recorded before admission, so a refused turn still says which model it was
     // refused for: that is the first thing an operator looks at when a deployment
     // is hitting its own ceiling.
@@ -481,6 +482,25 @@ fn word_timeout(edge: &Edge, error: &Error) -> Error {
     } else {
         error.clone()
     }
+}
+
+/// Point a request at the model this deployment's plan serves, when a rule says so.
+///
+/// Returns the name the client asked for when a rule rewrote it, so that the turn
+/// can record both what was asked and what was used; `None` means the request goes
+/// out under the name it arrived with, which is the case for every unmapped name.
+///
+/// Rewriting the request rather than the envelope is what keeps the answer honest:
+/// the upstream is asked for one model and the response echoes that same model, so
+/// a client that reads back `model` is reading the name its answer came from.
+fn apply_model_alias(edge: &Edge, request: &mut bifrost_core::CanonicalRequest) -> Option<String> {
+    let requested = request.model.clone()?;
+    let alias = edge.config().models.resolve(&requested)?;
+    if alias == requested {
+        return None;
+    }
+    request.model = Some(alias.to_owned());
+    Some(requested)
 }
 
 fn admit(edge: &Arc<Edge>) -> Option<Option<InflightPermit>> {

@@ -8,7 +8,9 @@
    canonical IR.
 3. **Canonical IR** — `bifrost-core`. The only vocabulary adapters share.
 4. **Mechanisms** — optional, config-gated behaviors that observe or amend a
-   request. Each one is off unless enabled.
+   request. Each one is off unless enabled. The model rules are the same shape with
+   the table itself for a switch: an operator who writes no rule gets no rewriting,
+   and a name no rule matches is never replaced.
 5. **Upstream adapters** — encode the canonical request into the upstream's
    dialect, and decode its stream back into canonical chunks.
 6. **Stream engine** — incrementally recognizes reasoning, tool-call markup and
@@ -113,6 +115,40 @@ that table on every failed refresh, which trades a stale-but-true answer for a
 fresh guess. A body that is not a catalogue at all is a failure in the same
 sense, while an empty one is an answer: the upstream said this key may use
 nothing, and second-guessing it would offer models the account cannot request.
+
+## The model rules
+
+A client asks for the model it was written to ask for, and an account is served a
+particular set of models. `models.aliases` is where those two are reconciled: a
+table of patterns, and the rewrite is a prefix match with the longest pattern
+winning. Longest-wins is what lets a deployment write a rule for a family and a
+rule for one member of it without the two having to be ordered by hand, and an
+exact name needs no special case because it is the longest pattern that can match
+itself.
+
+Three designs were considered and rejected, all of them for the same reason — they
+answer a question the client did not ask:
+
+- **A default model for unmatched names.** A client that misspells a model would
+  get an answer from a different one, and the response's `model` would name
+  something the client never asked for. A `401 MODEL_NOT_IN_PLAN` is the upstream's
+  true answer, and it is more useful than a silent substitution.
+- **Discovering what the account may use, and choosing for the client.** That is a
+  policy about which model is good enough, and it belongs to the person, not to
+  the proxy. It also makes the answer depend on the catalogue at the moment of the
+  turn, so two identical requests could be answered by two different models.
+- **Rewriting at the encoder.** The wire adapter would then send one name while
+  the edge echoed another. The rewrite happens once, on the canonical request,
+  before anything reads or encodes it, so the name asked for upstream, the name
+  reported in the response, and the name in the access line are one name — and the
+  name the client actually sent is kept beside it as `requested_model`, and in the
+  archived bytes, where no rule can rewrite it.
+
+The rules are not part of the wire dialect: they are about which of this account's
+models a client's vocabulary maps onto, and that is the same question for every
+dialect. The table is off when it is empty, and validation refuses a rule that
+could never name a model — an empty pattern matches everything, which is a rule
+that looks like one line and behaves like a rewrite of the whole catalogue.
 
 ## Evidence preservation
 
