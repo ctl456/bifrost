@@ -51,6 +51,16 @@ body:{config:d,memory:null,taste:null,skills:null,permissionMode:u,
               stream:!0,...temperature?,...reasoning_effort?}}
 ```
 
+## The 1.54.1 check
+
+The drift line moved again, a patch release later, and the answer is the same:
+nothing this dialect implements changed. 44 literals checked, the five anchor
+windows — the generate envelope, the project context, the header table, the
+fingerprint record and the lifecycle payload — identical in count and in order, and
+every tool alias and error code still present with its use count unchanged. The
+dialect stays at `cc/1.53.1`, and the line in the log is a reminder that cost
+nothing rather than a change waiting to be made.
+
 ## Running it
 
 ```sh
