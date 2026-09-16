@@ -6,10 +6,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
-use crate::core::Error;
+use crate::core::{Error, Usage};
 use crate::fingerprint::DeviceProfile;
 use crate::protocol::adapter::{ConvertOptions, ProtocolAdapter, registry};
 use crate::wire::{Entropy, SystemEntropy, WireAdapter, WireContext, adapter_for, uuid_v4};
+use serde::Serialize;
 
 use crate::edge::access::{Access, Permit, TokenUsage};
 use crate::edge::lifecycle::Schedule;
@@ -311,6 +312,35 @@ impl Edge {
         self.access.as_ref()
     }
 
+    /// A meter for one turn, bound to the caller whose row it should land in.
+    ///
+    /// Built where the caller is known because a stream outlives the handler that
+    /// opened it: by the time the accounting arrives, the handler that held the
+    /// token's name has already returned.
+    #[must_use]
+    pub fn meter(self: &Arc<Self>, token: Option<&str>) -> Meter {
+        Meter {
+            edge: Arc::clone(self),
+            token: token.and_then(|name| self.access.as_ref().map(|access| (Arc::clone(access), name.to_owned()))),
+        }
+    }
+
+    /// Add one turn's token accounting to this process's totals.
+    ///
+    /// One place, so the process totals and a caller's row cannot count different
+    /// turns: whatever the meter recorded is what both of them saw.
+    fn note_usage(&self, stats: &CacheStats) {
+        let counters = &self.counters;
+        counters.prompt_tokens.fetch_add(stats.prompt_tokens, Ordering::Relaxed);
+        counters.cached_tokens.fetch_add(stats.cached_tokens, Ordering::Relaxed);
+        counters
+            .cache_write_tokens
+            .fetch_add(stats.cache_write_tokens, Ordering::Relaxed);
+        counters
+            .completion_tokens
+            .fetch_add(stats.completion_tokens, Ordering::Relaxed);
+    }
+
     #[must_use]
     pub fn inflight(&self) -> usize {
         self.inflight.load(Ordering::Acquire)
@@ -395,6 +425,12 @@ impl Edge {
             upstream_failed: counters.upstream_failed.load(Ordering::Relaxed),
             timeouts: counters.timeouts.load(Ordering::Relaxed),
             client_stalls: counters.client_stalls.load(Ordering::Relaxed),
+            cache: CacheStats {
+                prompt_tokens: counters.prompt_tokens.load(Ordering::Relaxed),
+                cached_tokens: counters.cached_tokens.load(Ordering::Relaxed),
+                cache_write_tokens: counters.cache_write_tokens.load(Ordering::Relaxed),
+                completion_tokens: counters.completion_tokens.load(Ordering::Relaxed),
+            },
             tokens: self.access.as_ref().map_or_else(Vec::new, |access| access.usage()),
         }
     }
@@ -414,6 +450,100 @@ impl Edge {
     }
 }
 
+/// What a set of turns was billed for, by token class.
+///
+/// Cache traffic is its own line because it is the one number that answers whether
+/// a conversation is being served from the provider's cache: tokens *read* from it
+/// cost less than tokens written to it, so the ratio between the first and the whole
+/// prompt is what moves when a client's prefix stops being stable. Counts rather
+/// than money, deliberately: no price list is read anywhere in this process, and a
+/// figure that claimed a saving would be a guess wearing a number's clothes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct CacheStats {
+    /// Prompt tokens the upstream billed for.
+    pub prompt_tokens: u64,
+    /// Of those, the ones the provider served from its cache.
+    pub cached_tokens: u64,
+    /// Prompt tokens this turn wrote into that cache instead.
+    pub cache_write_tokens: u64,
+    pub completion_tokens: u64,
+}
+
+impl CacheStats {
+    /// Read one turn's accounting.
+    #[must_use]
+    pub const fn from_usage(usage: &Usage) -> Self {
+        Self {
+            prompt_tokens: usage.prompt_tokens as u64,
+            cached_tokens: usage.cached_tokens as u64,
+            cache_write_tokens: usage.cache_write_tokens as u64,
+            completion_tokens: usage.completion_tokens as u64,
+        }
+    }
+
+    /// Whether the reading holds nothing worth counting.
+    ///
+    /// A turn the upstream reported no accounting for is a turn that was not billed
+    /// for, and folding it in would move a total for a reason it does not name.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.prompt_tokens == 0
+            && self.cached_tokens == 0
+            && self.cache_write_tokens == 0
+            && self.completion_tokens == 0
+    }
+
+    /// Fold another reading into this one.
+    #[must_use]
+    pub const fn added(self, other: Self) -> Self {
+        Self {
+            prompt_tokens: self.prompt_tokens + other.prompt_tokens,
+            cached_tokens: self.cached_tokens + other.cached_tokens,
+            cache_write_tokens: self.cache_write_tokens + other.cache_write_tokens,
+            completion_tokens: self.completion_tokens + other.completion_tokens,
+        }
+    }
+
+    /// The share of the prompt the provider served from its cache.
+    ///
+    /// `None` until a prompt has been counted, because a rate over no tokens is
+    /// unmeasured rather than zero — and a `0.0` would read as "the cache never
+    /// helps", which is a claim nothing here has made.
+    #[must_use]
+    pub fn cache_hit_rate(&self) -> Option<f64> {
+        (self.prompt_tokens > 0).then(|| self.cached_tokens as f64 / self.prompt_tokens as f64)
+    }
+}
+
+/// Where one finished turn's token accounting goes.
+///
+/// The numbers only exist once the stream carrying them has been read — the upstream
+/// reports them in its terminal event — so they cannot be moved where the turn is
+/// admitted. This travels with the turn instead and is written on the way out, which
+/// is the last moment they are still in hand.
+///
+/// Process totals and the caller's row are written together and from here, so one
+/// `/status` reading cannot have counted a turn the other missed.
+pub struct Meter {
+    edge: Arc<Edge>,
+    /// The caller to file it under, when this deployment issued a token.
+    token: Option<(Arc<Access>, String)>,
+}
+
+impl Meter {
+    /// Record one turn's accounting, when the upstream reported any.
+    pub fn record(&self, usage: &Usage) {
+        let stats = CacheStats::from_usage(usage);
+        if stats.is_empty() {
+            return;
+        }
+        self.edge.note_usage(&stats);
+        if let Some((access, name)) = &self.token {
+            access.record(name, &stats);
+        }
+    }
+}
+
 /// The counts behind [`Status`].
 ///
 /// Private, and moved only through the methods on [`Edge`] that name the decision
@@ -429,6 +559,10 @@ struct Counters {
     upstream_failed: AtomicU64,
     timeouts: AtomicU64,
     client_stalls: AtomicU64,
+    prompt_tokens: AtomicU64,
+    cached_tokens: AtomicU64,
+    cache_write_tokens: AtomicU64,
+    completion_tokens: AtomicU64,
 }
 
 /// What a running deployment has answered.
@@ -460,6 +594,12 @@ pub struct Status {
     pub timeouts: u64,
     /// Streams cut because the client stopped reading them.
     pub client_stalls: u64,
+    /// What the prompt cache has done for every turn this process served.
+    ///
+    /// Aggregate, like the counts around it: it says whether this deployment's
+    /// callers are being served from the provider's cache, which is the one number
+    /// that moves when a client stops sending a stable prefix.
+    pub cache: CacheStats,
     /// What each issued token has been used for. Empty unless this deployment
     /// issues tokens: a name is not a credential, and it is the one thing an
     /// operator needs that the counts above cannot answer — which caller is the
@@ -614,6 +754,66 @@ mod tests {
         let edge = edge(true);
         std::thread::sleep(Duration::from_millis(2));
         assert!(edge.status().uptime_ms >= 2, "{}", edge.status().uptime_ms);
+    }
+
+    /// The cache totals follow the accounting they were given, and a rate over no
+    /// tokens is unmeasured rather than zero.
+    #[test]
+    fn cache_totals_follow_the_accounting_they_were_given() {
+        let edge = edge(false);
+        assert_eq!(edge.status().cache, CacheStats::default(), "nothing counted yet");
+        assert_eq!(
+            CacheStats::default().cache_hit_rate(),
+            None,
+            "a rate over no tokens is unmeasured, not zero"
+        );
+
+        let meter = edge.meter(None);
+        meter.record(&Usage::default());
+        assert_eq!(
+            edge.status().cache,
+            CacheStats::default(),
+            "a turn the upstream billed nothing for moves nothing"
+        );
+
+        meter.record(&Usage {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            cached_tokens: 80,
+            cache_write_tokens: 5,
+            ..Usage::default()
+        });
+        let totals = edge.status().cache;
+        assert_eq!(totals.prompt_tokens, 100);
+        assert_eq!(totals.cached_tokens, 80);
+        assert_eq!(totals.cache_write_tokens, 5);
+        assert_eq!(totals.completion_tokens, 20);
+        assert_eq!(totals.cache_hit_rate(), Some(0.8));
+
+        meter.record(&Usage {
+            prompt_tokens: 100,
+            completion_tokens: 1,
+            ..Usage::default()
+        });
+        let totals = edge.status().cache;
+        assert_eq!(totals.prompt_tokens, 200, "a second turn adds to the first");
+        assert_eq!(totals.cached_tokens, 80);
+        assert_eq!(totals.cache_hit_rate(), Some(0.4));
+    }
+
+    /// A deployment that forwards its callers' keys has no rows to file against, so
+    /// the meter must record without one — which is the case the process totals exist
+    /// for.
+    #[test]
+    fn a_forwarded_key_still_moves_the_process_totals() {
+        let edge = edge(false);
+        edge.meter(None).record(&Usage {
+            prompt_tokens: 10,
+            completion_tokens: 1,
+            ..Usage::default()
+        });
+        assert_eq!(edge.status().cache.prompt_tokens, 10);
+        assert_eq!(edge.status().tokens, Vec::new());
     }
 
     #[tokio::test]

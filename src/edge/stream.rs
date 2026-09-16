@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{ChunkGenerator, Error, OutputAccumulator, OutputChunk};
-use crate::edge::state::{Edge, Slots};
+use crate::edge::state::{Edge, Meter, Slots};
 use crate::edge::upstream::LineBuffer;
 use crate::protocol::SseFrame;
 use crate::wire::cc::{CcDecoder, DecodedLine};
@@ -116,6 +116,8 @@ pub struct Session {
     _reader: Task,
     /// The stall watchdog, when one is configured.
     _watchdog: Option<Task>,
+    /// Where what this turn cost is recorded, on whichever way out it takes.
+    meter: Meter,
     lines: LineBuffer,
     decoder: CcDecoder,
     renderer: Box<dyn ChunkGenerator<Event = SseFrame> + Send>,
@@ -150,6 +152,12 @@ pub struct StreamPlan {
     /// The stall watchdog: how long the client may stop taking bytes before the
     /// upstream is cut loose, and whose counter to raise when that happens.
     pub stall: Option<Stall>,
+    /// Where this turn's token accounting goes once the upstream has reported it.
+    ///
+    /// Carried by the plan rather than read from the gateway at the end, because the
+    /// caller's name is what the accounting is filed against and the handler that
+    /// knew it has already returned by the time the numbers arrive.
+    pub meter: Meter,
 }
 
 /// The client-stall watchdog's two halves: the allowance and the counter that
@@ -164,6 +172,18 @@ pub struct Stall {
     pub edge: Arc<Edge>,
 }
 
+impl Drop for Session {
+    /// Record what the turn cost, on every way out.
+    ///
+    /// A stream ends for many reasons — the upstream finished, the client stopped
+    /// reading, the connection broke — and accounting that was received is
+    /// accounting either way. `Drop` is the one exit all of them take, so it is the
+    /// one place that cannot miss the last of them.
+    fn drop(&mut self) {
+        self.meter.record(&self.accumulator.usage);
+    }
+}
+
 impl Session {
     /// Watch the upstream until the response can be committed, or decide that it
     /// cannot be.
@@ -174,6 +194,7 @@ impl Session {
             idle,
             heartbeat,
             stall,
+            meter,
         } = plan;
 
         let (sender, incoming) = mpsc::channel(CHANNEL_CAPACITY);
@@ -188,6 +209,7 @@ impl Session {
             incoming,
             _reader: Task(reader),
             _watchdog: watchdog,
+            meter,
             lines: LineBuffer::new(),
             decoder: CcDecoder::new(),
             renderer,

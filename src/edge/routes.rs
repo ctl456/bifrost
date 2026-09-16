@@ -15,14 +15,14 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use futures_util::StreamExt;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::edge::access::Caller;
 use crate::edge::error::{self, Shape};
 use crate::edge::lifecycle;
 use crate::edge::log;
 use crate::edge::state::{
-    Edge, InflightPermit, Slots, empty_output_error, idle_timeout_error, is_idle_timeout, now_unix,
+    Edge, InflightPermit, Meter, Slots, empty_output_error, idle_timeout_error, is_idle_timeout, now_unix,
 };
 use crate::edge::stream::{self, Opening, Stall, StreamPlan};
 use crate::edge::upstream;
@@ -138,6 +138,11 @@ async fn liveness() -> Response {
 /// metrics switch that was removed: there is no switch, there is nothing to
 /// configure, and no decision anywhere is taken from a number in it.
 ///
+/// It also carries what the provider's cache did for this traffic — how much of the
+/// prompt was read from it and how much was written to it — which is the one number
+/// that moves when a client stops sending a stable prefix, and the one thing a
+/// client cannot measure from its own side.
+///
 /// One row per issued token does name callers, so where the deployment issues
 /// tokens this page takes the same credential a turn does. A page that names people
 /// is not one to hand to whatever can reach the port, and the port is the thing a
@@ -152,6 +157,24 @@ async fn status(State(edge): State<Arc<Edge>>, headers: HeaderMap) -> Response {
         return error_response(Shape::OpenAi, &Error::authentication(missing_credential(&edge)));
     }
     let status = edge.status();
+    // The caller rows are shaped here rather than serialized, so the ratio is handed
+    // over instead of left as arithmetic: this page exists to be read, and a reader
+    // that has to divide two numbers has to know which two.
+    let tokens: Vec<Value> = status
+        .tokens
+        .iter()
+        .map(|token| {
+            json!({
+                "name": token.name,
+                "requests": token.requests,
+                "inflight": token.inflight,
+                "idle_ms": token.idle_ms,
+                "revoked": token.revoked,
+                "cache": token.cache,
+                "cache_hit_rate": hit_rate(token.cache.cache_hit_rate()),
+            })
+        })
+        .collect();
     json_response(
         StatusCode::OK,
         &json!({
@@ -166,9 +189,21 @@ async fn status(State(edge): State<Arc<Edge>>, headers: HeaderMap) -> Response {
             "upstream_failed": status.upstream_failed,
             "timeouts": status.timeouts,
             "client_stalls": status.client_stalls,
-            "tokens": status.tokens,
+            "cache": status.cache,
+            "cache_hit_rate": hit_rate(status.cache.cache_hit_rate()),
+            "tokens": tokens,
         }),
     )
+}
+
+/// A cache ratio as the page reports it.
+///
+/// Rounded, because a float divided out of two counters is not a measurement with
+/// more digits than the counters have. Absent rather than zero before anything has
+/// been counted: a reader that branches on `0.0` would take "the cache never helps"
+/// out of a page that never measured it.
+fn hit_rate(rate: Option<f64>) -> Value {
+    rate.map_or(Value::Null, |rate| json!((rate * 10_000.0).round() / 10_000.0))
 }
 
 async fn not_found() -> Response {
@@ -262,6 +297,9 @@ async fn serve_turn(
 
     detail.key_fingerprint = Some(crate::edge::auth::key_fingerprint(caller.key()));
     detail.token = caller.token().map(str::to_owned);
+    // Built here because the caller is the row it files against, and the accounting
+    // it will carry is not known until long after this handler has returned.
+    let meter = edge.meter(caller.token());
     let session = edge.session_for(caller.identity(), &headers, request.prompt_cache_key.as_deref());
 
     let context = edge.wire_context(caller.key(), &session);
@@ -310,9 +348,9 @@ async fn serve_turn(
     };
 
     if !request.stream {
-        return complete(adapter, protocol, &edge, &request, response).await;
+        return complete(adapter, protocol, &edge, &request, response, &meter).await;
     }
-    streaming(adapter, protocol, &edge, &request, response, slots).await
+    streaming(adapter, protocol, &edge, &request, response, slots, meter).await
 }
 
 /// Work out who is asking, or the refusal to send back.
@@ -384,6 +422,7 @@ async fn complete(
     edge: &Edge,
     request: &crate::core::CanonicalRequest,
     response: reqwest::Response,
+    meter: &Meter,
 ) -> Response {
     // The idle timeout covers the whole read rather than the gaps between reads.
     // There are no gaps to measure here: the upstream may answer in one piece, so
@@ -410,6 +449,7 @@ async fn complete(
 
     // The turn finished, so whatever run of timeouts preceded it is over.
     edge.note_success();
+    meter.record(&complete.chunks.usage);
 
     let meta = meta_for(adapter, request, None);
     let body = adapter.render_response(
@@ -428,6 +468,7 @@ async fn streaming(
     request: &crate::core::CanonicalRequest,
     response: reqwest::Response,
     slots: Slots,
+    meter: Meter,
 ) -> Response {
     let model = model_for(adapter, request);
     let meta = meta_for(adapter, request, Some(model.clone()));
@@ -442,6 +483,7 @@ async fn streaming(
             after,
             edge: Arc::clone(edge),
         }),
+        meter,
     };
 
     match stream::Session::open(plan).await {

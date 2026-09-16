@@ -224,8 +224,19 @@ read by more people than the key is given to.
 `GET /status` answers the same question as counts. It is how an operator tells
 "nothing is arriving" from "nothing is working" without reading a log. It is
 aggregate, and where it names nobody it needs no credential, so nothing in it quotes
-a key, a model or a body, and no decision anywhere is taken from a number in it. A
-deployment that issues tokens does name callers there, one row each, and that page
+a key, a model or a body, and no decision anywhere is taken from a number in it. It
+also carries what the provider's cache did for this traffic — prompt, cached, written
+and completion tokens, and the ratio between the first two — which is the half of the
+bill a client cannot see from its own side.
+
+Those numbers only exist once the upstream has reported them, which for a streamed
+turn is after the handler that knew the caller has returned, so they are not moved
+where the turn is admitted. A `Meter` travels with the turn instead and is written on
+the way out — from the stream's own `Drop`, which is the one exit every way of ending
+a stream takes — so a turn that failed, stalled or was cut short still counts what it
+cost.
+
+A deployment that issues tokens does name callers there, one row each, and that page
 takes the same token a turn does: the port is what reaches further than the machine,
 and a list of who is using the account is not part of what it should hand out. There
 is no metrics endpoint — the setting that suggested one was removed rather than left

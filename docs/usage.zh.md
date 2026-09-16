@@ -121,9 +121,10 @@ tokens_file = "var/tokens.json"
   删掉等于没有任何 token，也就是全部拒绝。
 - 这里 key 不是 token：`user_…` key 发给发牌的部署会被 `401` 拒绝 —— 一个仍然有效的
   凭据，就是撤销够不到的凭据。
-- `GET /status` 每个 token 多一行（名字、已服务、在飞、空闲、是否撤销），这是聚合计数
-  答不了的问题。也正因为这一行，这个页面要 token 才能看，否则 `401`；转发 key 的部署
-  里没有名字，仍然匿名可读。两种形态下 `/health` 都不需要凭据。
+- `GET /status` 每个 token 多一行（名字、已服务、在飞、空闲、是否撤销，以及这个调用方
+  的轮次在 provider 缓存上做了什么），这是聚合计数答不了的问题：谁把位置占满了，以及
+  是谁把大家的 prompt 缓存搞坏了。也正因为这一行，这个页面要 token 才能看，否则 `401`；
+  转发 key 的部署里没有名字，仍然匿名可读。两种形态下 `/health` 都不需要凭据。
 - **key 仍然不在这个文件里。** `access.key_file` 只是点名一个本进程读的文件；key 不会
   被 `--print-config` 打印，不会进日志，也不会发给客户端。
 
@@ -185,6 +186,15 @@ tokens_file = "var/tokens.json"
 
 `GET /status` 是同一个问题用计数回答（跑了多久、答了多少轮、拒了多少、上游失败多少
 次），运维靠它区分“没东西进来”和“有东西但没 work”。里面不引用 key、模型或 body。
+
+它还带一个 `cache`，是本进程服务过的所有轮次的合计：`prompt_tokens`、provider 从缓存
+里直接读的 `cached_tokens`、写进缓存的 `cache_write_tokens`，以及 `completion_tokens`。
+`cache_hit_rate` 是 `cached_tokens / prompt_tokens`，保留四位小数；在一轮都没计过之前
+是 `null` —— 没有 token 的比率是“没测过”，不是 0，按 `0.0` 分支的读者会从一个还没看过
+的页面上得出错误结论。这是客户端自己算不出来的那个数：harness 只知道自己的 token 估算，
+不知道 provider 的缓存对这段 prompt 做了什么。前缀一旦不再稳定，在这里表现为比率下降而
+`cache_write_tokens` 上升 —— 这比账单更早告诉运维发生了什么。报的是计数而不是钱：本进程
+不读任何价目表。
 
 在 systemd 下，`deploy/bifrost.service` 用非特权用户跑它，自带 state 目录，只有一条
 出网连接和一个 socket，除了那个目录无处可写。unit 里两条命令都用

@@ -151,11 +151,13 @@ tokens_file = "var/tokens.json"
   refused with a `401` that says so: a credential that still worked would be one
   revocation does not reach.
 - `GET /status` gains a row per token — name, requests served, in flight, idle time,
-  revoked — which is the question the aggregate counters cannot answer: which caller
-  is filling the ceiling. That row is also why this page is the one surface that stops
-  being anonymous here: it takes the token a turn takes, or answers `401`. A
-  deployment that forwards its callers' keys names nobody in it and is still read
-  without a credential, and `/health` needs nothing in either shape.
+  revoked, and what that caller's turns did to the provider's cache — which is the
+  question the aggregate counters cannot answer: which caller is filling the ceiling,
+  and which one is breaking the prompt cache for everybody. That row is also why this
+  page is the one surface that stops being anonymous here: it takes the token a turn
+  takes, or answers `401`. A deployment that forwards its callers' keys names nobody
+  in it and is still read without a credential, and `/health` needs nothing in either
+  shape.
 - **The key is still not in the file.** `access.key_file` names a file this process
   reads; the key is never printed by `--print-config`, never logged, and never sent
   to a client.
@@ -235,6 +237,18 @@ been up, and how many turns it answered, refused, or failed upstream. That is ho
 operator tells "nothing is arriving" from "nothing is working" without reading a log.
 Nothing in it quotes a key, a model or a body, and no decision is taken from a number
 in it.
+
+It also carries `cache`, summed over every turn this process served: `prompt_tokens`,
+the `cached_tokens` the provider served from its cache, the `cache_write_tokens` it
+wrote, and `completion_tokens`. `cache_hit_rate` is `cached_tokens / prompt_tokens`,
+rounded to four places, and is `null` until a turn has been counted — a rate over no
+tokens is unmeasured rather than zero, and a reader that branched on `0.0` would draw
+the wrong conclusion from a page that had not yet looked. This is the one number a
+client cannot work out for itself: a harness knows its own token estimate, not what
+the provider's cache did with the prompt. A prefix that stopped being stable shows up
+here as a rate that falls while `cache_write_tokens` rises, which is the signal an
+operator wants before the bill explains it. Counts, not money: no price list is read
+anywhere in this process.
 
 `--print-config` is the third way to see what a deployment is: it prints the resolved
 configuration with secrets redacted, which is the answer that was not already in the

@@ -122,7 +122,10 @@ fi
 # to be about this process alone: this section exists to pin both. `tokens` is in the
 # list because the body always carries it — this deployment issues none, so it has to
 # be empty rather than absent, which is what says the rows are about tokens instead of
-# about the deployment that happens to be running.
+# about the deployment that happens to be running. `cache` is here before a single
+# turn has been served, and its rate has to be null rather than 0.0: a rate over no
+# tokens is unmeasured, and a dashboard that branched on zero would read "the cache
+# never helps" out of a page that had not yet looked.
 if python3 - "$counts_before" <<'PY'
 import json, sys
 status = json.load(open(sys.argv[1]))
@@ -130,6 +133,7 @@ fields = sorted(status)
 want = sorted([
     "uptime_ms", "inflight", "max_inflight", "turns", "refused", "unauthenticated",
     "too_large", "malformed", "upstream_failed", "timeouts", "client_stalls", "tokens",
+    "cache", "cache_hit_rate",
 ])
 if fields != want:
     print("  note  fields: %s" % ", ".join(fields))
@@ -139,6 +143,12 @@ if status["tokens"]:
     raise SystemExit(1)
 if status["turns"] != 0:
     print("  note  turns=%r, and nothing has asked for a turn yet" % status["turns"])
+    raise SystemExit(1)
+if sorted(status["cache"]) != ["cache_write_tokens", "cached_tokens", "completion_tokens", "prompt_tokens"]:
+    print("  note  cache: %r" % status["cache"])
+    raise SystemExit(1)
+if status["cache_hit_rate"] is not None:
+    print("  note  cache_hit_rate=%r before any turn" % status["cache_hit_rate"])
     raise SystemExit(1)
 PY
 then
@@ -207,6 +217,62 @@ PY
         pass "the counts agree that one turn was answered"
     else
         fail "the counts do not show the turn that was just served"
+    fi
+
+    # The cache reading the client was handed and the cache reading `/status` keeps
+    # are the same turn's numbers seen from its two sides, and they are compared as a
+    # delta rather than absolutely: the page is cumulative, so a check that read the
+    # bare total would pass on a deployment whose counters had never moved. This is
+    # what makes the totals a report rather than a decoration — a page that counted
+    # something other than what the client was billed for would otherwise look
+    # perfectly healthy. `cache_hit_rate` is pinned to a number rather than null,
+    # because a turn whose prompt was counted is exactly the case it must stop being
+    # absent in.
+    if python3 - "$counts_before" "$counts_after" "$body" <<'CHECKEof'
+import json, sys
+
+try:
+    before, after, body = (json.load(open(path)) for path in sys.argv[1:4])
+except Exception as error:
+    print("  note  %s" % error)
+    raise SystemExit(1)
+
+usage = body.get("usage") or {}
+prompt = usage.get("prompt_tokens", 0)
+cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+completion = usage.get("completion_tokens", 0)
+if prompt <= 0 or completion <= 0:
+    print("  note  the turn reported no billable usage: %r" % usage)
+    raise SystemExit(1)
+
+was, now = before["cache"], after["cache"]
+moved = {key: now[key] - was[key] for key in now}
+for key, told in (("prompt_tokens", prompt), ("cached_tokens", cached), ("completion_tokens", completion)):
+    if moved[key] != told:
+        print("  note  %s: the client was told %d, the counts moved %d" % (key, told, moved[key]))
+        raise SystemExit(1)
+
+if now["cache_write_tokens"] < was["cache_write_tokens"]:
+    print("  note  cache_write_tokens went backwards: %d then %d" % (was["cache_write_tokens"], now["cache_write_tokens"]))
+    raise SystemExit(1)
+
+rate = after["cache_hit_rate"]
+if rate is None:
+    print("  note  cache_hit_rate is null after a turn whose prompt was counted")
+    raise SystemExit(1)
+if abs(rate - cached / prompt) > 0.001:
+    print("  note  cache_hit_rate=%r, but %d of %d tokens were cached" % (rate, cached, prompt))
+    raise SystemExit(1)
+if after["tokens"]:
+    print("  note  tokens=%r, and this deployment issues none" % after["tokens"])
+    raise SystemExit(1)
+print("  note  prompt=%d cached=%d completion=%d write=%d rate=%.4f"
+      % (prompt, cached, completion, moved["cache_write_tokens"], rate))
+CHECKEof
+    then
+        pass "the cache totals moved exactly as much as the usage the client was handed"
+    else
+        fail "the cache totals do not match the usage the client was handed"
     fi
 fi
 

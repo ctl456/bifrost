@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::edge::log;
+use crate::edge::state::CacheStats;
 
 /// The prefix every issued token carries.
 ///
@@ -258,6 +259,7 @@ impl Document {
                             requests: old.usage.requests,
                             inflight: old.usage.inflight,
                             last_used: old.usage.last_used,
+                            cache: old.usage.cache,
                         });
                 Some((
                     token.name.clone(),
@@ -325,10 +327,15 @@ struct Usage {
     requests: u64,
     inflight: usize,
     last_used: Option<Instant>,
+    /// What this token's finished turns were billed for.
+    ///
+    /// Carried over a reload with the rest: it belongs to the credential, not to
+    /// the string that names it.
+    cache: CacheStats,
 }
 
 /// What one token has been used for, as `/status` reports it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenUsage {
     pub name: String,
     pub requests: u64,
@@ -336,6 +343,8 @@ pub struct TokenUsage {
     /// Milliseconds since this token last served a turn, absent when it never has.
     pub idle_ms: Option<u64>,
     pub revoked: bool,
+    /// What this token's turns cost, by token class.
+    pub cache: CacheStats,
 }
 
 /// The state of the token file as it was last read.
@@ -482,10 +491,25 @@ impl Access {
                     .last_used
                     .map(|at| u64::try_from(now.duration_since(at).as_millis()).unwrap_or(u64::MAX)),
                 revoked: held.revoked,
+                cache: held.usage.cache,
             })
             .collect();
         usage.sort_by(|left, right| left.name.cmp(&right.name));
         usage
+    }
+
+    /// Add one finished turn's token accounting to the token that paid for it.
+    ///
+    /// Filed against the credential rather than the connection, for the same reason
+    /// the access line is: a name is what tells one caller's cache behaviour from
+    /// another's. A name with no token is dropped rather than refused — the meter is
+    /// written from a stream that outlives the call that authorised it, and a
+    /// revocation between the two must not turn a finished turn into a panic.
+    pub fn record(&self, name: &str, stats: &CacheStats) {
+        let mut tokens = self.tokens.lock().expect("tokens poisoned");
+        if let Some(held) = tokens.get_mut(name) {
+            held.usage.cache = held.usage.cache.added(*stats);
+        }
     }
 
     /// Re-read the file when it has changed since it was last read.
@@ -702,6 +726,54 @@ mod tests {
             key_file: Some(key_file),
             tokens_file: root.join("tokens.json"),
         }
+    }
+
+    /// What a caller cost is filed against that caller, and a name this deployment
+    /// never issued is dropped rather than fatal.
+    #[test]
+    fn a_turn_is_filed_against_the_token_that_paid_for_it() {
+        let root = scratch("cache");
+        let config = config(&root);
+        let mut document = Document::default();
+        document.issue("laptop", 0, 0).expect("issue");
+        document.write(&config.tokens_file).expect("write");
+        let access = Access::open(&config).expect("open");
+
+        assert_eq!(access.usage()[0].cache, CacheStats::default());
+        access.record(
+            "laptop",
+            &CacheStats {
+                prompt_tokens: 100,
+                cached_tokens: 80,
+                cache_write_tokens: 5,
+                completion_tokens: 4,
+            },
+        );
+        let row = &access.usage()[0];
+        assert_eq!(row.cache.prompt_tokens, 100);
+        assert_eq!(row.cache.cached_tokens, 80);
+        assert_eq!(row.cache.cache_write_tokens, 5);
+        assert_eq!(row.cache.completion_tokens, 4);
+        assert_eq!(row.cache.cache_hit_rate(), Some(0.8));
+
+        access.record(
+            "laptop",
+            &CacheStats {
+                completion_tokens: 1,
+                ..CacheStats::default()
+            },
+        );
+        assert_eq!(access.usage()[0].cache.completion_tokens, 5, "a second turn adds in");
+
+        access.record(
+            "never-issued",
+            &CacheStats {
+                prompt_tokens: 7,
+                ..CacheStats::default()
+            },
+        );
+        assert_eq!(access.usage().len(), 1, "a name with no token files nothing");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The check the surfaces that serve no turn use. It answers the same question

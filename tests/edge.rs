@@ -188,6 +188,22 @@ fn parsed_tokens(body: &str) -> Value {
     serde_json::from_str::<Value>(body).expect("json")["tokens"].clone()
 }
 
+/// Read `/status` until a turn's token accounting has landed.
+///
+/// A turn's accounting is written when the stream that carried it is dropped, which
+/// is a moment after the client has read its last byte. Polling rather than sleeping
+/// keeps the tests off a stopwatch, and the panic carries the body it settled on.
+async fn status_with_cache(edge: &str, credential: Option<&str>) -> Value {
+    for _ in 0..200 {
+        let status = status_of(edge, credential).await;
+        if status["cache"]["prompt_tokens"] != json!(0) {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the accounting never arrived: {}", status_of(edge, credential).await);
+}
+
 /// The path a turn is generated through.
 const GENERATE: &str = "/alpha/generate";
 
@@ -199,6 +215,16 @@ const DELTAS: &str = concat!(
     "{\"type\":\"text-delta\",\"text\":\"Hel\"}\n",
     "{\"type\":\"text-delta\",\"text\":\"lo\"}\n",
     "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":10,\"outputTokens\":3}}\n",
+);
+
+/// The same stream, with the provider's cache counters on the terminal event.
+///
+/// `cachedInputTokens` is the read half and `inputTokenDetails.cacheWriteTokens` the
+/// write half, which is the pair `/status` reports.
+const CACHED_DELTAS: &str = concat!(
+    "{\"type\":\"text-delta\",\"text\":\"Hel\"}\n",
+    "{\"type\":\"text-delta\",\"text\":\"lo\"}\n",
+    "{\"type\":\"finish\",\"finishReason\":\"stop\",\"totalUsage\":{\"inputTokens\":100,\"outputTokens\":4,\"cachedInputTokens\":80,\"inputTokenDetails\":{\"noCacheTokens\":15,\"cacheWriteTokens\":5}}}\n",
 );
 
 #[tokio::test]
@@ -436,6 +462,8 @@ async fn the_counts_are_readable_without_a_key_and_name_nothing_private() {
     assert_eq!(
         fields,
         [
+            "cache",
+            "cache_hit_rate",
             "client_stalls",
             "inflight",
             "malformed",
@@ -452,6 +480,78 @@ async fn the_counts_are_readable_without_a_key_and_name_nothing_private() {
         "the field list is the contract an operator's dashboard reads"
     );
     assert_eq!(parsed["turns"], json!(1), "the turn above worked");
+}
+
+/// What the provider's cache did is reported without a credential, and it is the one
+/// number a client cannot measure from its own side: a harness sees its own token
+/// estimates, not the provider's counters.
+///
+/// The rate is absent before anything has been counted, which is the difference
+/// between "nothing measured" and "the cache never helps" — a dashboard that read a
+/// zero there would draw the wrong conclusion from a page that had not yet looked.
+#[tokio::test]
+async fn the_cache_the_provider_served_is_reported_aggregate() {
+    let (upstream, _) = upstream(|| (200, CACHED_DELTAS.to_owned(), "application/x-ndjson")).await;
+    let edge = edge(&upstream).await;
+
+    let before = status_of(&edge, None).await;
+    assert_eq!(before["cache"]["prompt_tokens"], json!(0), "nothing counted yet");
+    assert_eq!(
+        before["cache_hit_rate"],
+        Value::Null,
+        "a rate over no tokens is unmeasured, not zero"
+    );
+
+    let response = client()
+        .post(format!("{edge}/v1/chat/completions"))
+        .header("authorization", "Bearer user_a_key_of_its_own")
+        .json(&json!({
+            "model": "deepseek/deepseek-v4-flash",
+            "messages": [{ "role": "user", "content": "hi" }]
+        }))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(response.status(), 200);
+    let _ = response.text().await;
+
+    let after = status_with_cache(&edge, None).await;
+    assert_eq!(after["cache"]["prompt_tokens"], json!(100));
+    assert_eq!(after["cache"]["cached_tokens"], json!(80));
+    assert_eq!(after["cache"]["cache_write_tokens"], json!(5));
+    assert_eq!(after["cache"]["completion_tokens"], json!(4));
+    assert_eq!(after["cache_hit_rate"], json!(0.8));
+    assert_eq!(
+        after["tokens"],
+        json!([]),
+        "a deployment that issues no tokens names none"
+    );
+}
+
+/// The name a caller is known by carries its own cache reading, which is what makes
+/// "who is busting the cache" answerable rather than merely "the cache is busting".
+#[tokio::test]
+async fn a_cache_reading_is_filed_against_the_token_that_paid_for_it() {
+    let (upstream, _) = upstream(|| (200, CACHED_DELTAS.to_owned(), "application/x-ndjson")).await;
+    let root = temp_dir("access-cache");
+    let (edge, token) = issuing_edge(&upstream, &root, "laptop", 0, 0).await;
+
+    let response = a_turn(&edge, &token).send().await.expect("send");
+    assert_eq!(response.status(), 200);
+    let _ = response.text().await;
+
+    let status = status_with_cache(&edge, Some(&token)).await;
+    let row = &status["tokens"][0];
+    assert_eq!(row["name"], json!("laptop"));
+    assert_eq!(row["cache"]["cached_tokens"], json!(80));
+    assert_eq!(row["cache"]["cache_write_tokens"], json!(5));
+    assert_eq!(row["cache_hit_rate"], json!(0.8));
+    assert_eq!(
+        status["cache"]["cached_tokens"],
+        json!(80),
+        "and the process total counted the same turn"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// `/v1/messages` end to end, which nothing exercised before: the only test that
