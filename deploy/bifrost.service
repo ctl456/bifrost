@@ -10,9 +10,12 @@
 #   systemd-analyze verify /etc/systemd/system/bifrost.service
 #   systemctl daemon-reload && systemctl enable --now bifrost
 #
-# The configuration is named rather than discovered: the unit sets BIFROST_CONFIG
-# so that the file this service reads is the file someone edited, instead of
-# whatever `bifrost.toml` happens to be in the working directory at the time.
+# The configuration is named rather than discovered, and it is named on the command
+# line: both commands this unit runs are given `--config`, so the file that is
+# validated is the file that is served, instead of whatever `bifrost.toml` happens
+# to be in the working directory at the time. An argument is also the copy that is
+# visible — `systemctl show bifrost` and the process table both say which file is
+# serving, while an environment variable says only that one was set.
 #
 # The working directory is the state directory, so the relative `var/journal` and
 # `var/archive` paths of the default configuration land under /var/lib/bifrost,
@@ -28,15 +31,14 @@ Type=exec
 User=bifrost
 Group=bifrost
 WorkingDirectory=/var/lib/bifrost
-Environment=BIFROST_CONFIG=/etc/bifrost/bifrost.toml
 # The dash keeps the unit usable before this file exists: every setting in it is
 # also a key in the configuration file.
 EnvironmentFile=-/etc/bifrost/bifrost.env
 
 # A configuration this build cannot use fails the unit, rather than failing the
 # first request that needs it. The check reads and validates; it binds nothing.
-ExecStartPre=/usr/local/bin/bifrost --check
-ExecStart=/usr/local/bin/bifrost
+ExecStartPre=/usr/local/bin/bifrost --check --config /etc/bifrost/bifrost.toml
+ExecStart=/usr/local/bin/bifrost --config /etc/bifrost/bifrost.toml
 
 Restart=on-failure
 RestartSec=2

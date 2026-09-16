@@ -284,9 +284,11 @@ directory the operator happened to be standing in:
 `deploy/bifrost.service` runs it under systemd as an unprivileged user with its own
 state directory and a sandbox that grants it one socket, one outbound connection
 and nowhere to write but that directory — the relative `var/journal` and
-`var/archive` of the default configuration land inside it. The check is wired into
-`ExecStartPre`, so a configuration this build cannot use fails the unit instead of
-the first request that needs it. `deploy/bifrost.env.example` is the environment
+`var/archive` of the default configuration land inside it. Both commands the unit
+runs name the file with `--config /etc/bifrost/bifrost.toml`, and the check is wired
+into `ExecStartPre`, so a configuration this build cannot use fails the unit instead
+of the first request that needs it, and the file that was checked is the file that
+is served. `deploy/bifrost.env.example` is the environment
 file the unit reads, and every name in it is one the original proxy already used,
 so an existing deployment does not need a new set of secrets. The install steps are
 in the unit's own header.

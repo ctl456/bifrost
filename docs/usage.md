@@ -192,7 +192,8 @@ needed: that is how "nothing is arriving" is told from "nothing is working".
 
 With `evidence_archive = true`, each turn's original bytes are kept and one line per
 turn is appended to the journal. Five flags read that back, using the same
-configuration the server uses:
+configuration the server uses — under the shipped unit that means passing
+`--config /etc/bifrost/bifrost.toml`, because that is how the unit names it:
 
 | Command | Question it answers |
 |---|---|
@@ -213,10 +214,13 @@ window is kept; when the ceiling and the window disagree, the window wins and th
 log says so.
 
 Under systemd, `deploy/bifrost.service` runs it unprivileged with its own state
-directory, one socket, one outbound connection and nowhere else to write, and
-`--check` is wired into `ExecStartPre` so a bad file fails the unit rather than the
-first request. `deploy/bifrost.env.example` is the environment file the unit reads.
-Install steps are in the unit's own header.
+directory, one socket, one outbound connection and nowhere else to write. Both
+commands the unit runs name the configuration with `--config
+/etc/bifrost/bifrost.toml`, and `--check` is wired into `ExecStartPre` so a bad file
+fails the unit rather than the first request — and so that the file validated is the
+file served. `deploy/bifrost.env.example` is the environment file the unit reads; it
+cannot move the configuration, because a path named on the command line wins over
+`BIFROST_CONFIG`. Install steps are in the unit's own header.
 
 ## Troubleshooting
 

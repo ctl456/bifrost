@@ -138,7 +138,7 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 
 `GET /status` 用计数器回答这个进程一直在干什么，不需要 key：这是把「没有请求进来」和「请求进来但没工作」分开的办法。
 
-打开 `evidence_archive = true` 后，每个回合的原始字节会被保留，每次回合往 journal 追加一行。五个读取旗标使用与服务端相同的配置：
+打开 `evidence_archive = true` 后，每个回合的原始字节会被保留，每次回合往 journal 追加一行。五个读取旗标使用与服务端相同的配置——在仓库自带的 unit 下，这意味着命令行上也要带 `--config /etc/bifrost/bifrost.toml`，因为 unit 就是用这个方式指名文件的：
 
 | 命令 | 回答的问题 |
 |---|---|
@@ -152,7 +152,7 @@ key 是随请求进来的，和客户端一样，放在 `Authorization: Bearer �
 
 保留策略是 `audit.retain_days` 与 `audit.max_total_mb`，启动时和每天各执行一次。journal 永不裁剪；仍被窗口内某个回合引用的块会留下；上限和窗口冲突时以窗口为准，并在日志里说明。
 
-systemd 下 `deploy/bifrost.service` 以非特权用户运行它，只给一个 socket、一条出站连接和它自己的状态目录，其它哪儿都不能写；`--check` 接在 `ExecStartPre` 上，所以配置有问题时失败的是 unit，而不是第一个请求。`deploy/bifrost.env.example` 是这个 unit 读的环境文件。安装步骤写在 unit 自己的头部注释里。
+systemd 下 `deploy/bifrost.service` 以非特权用户运行它，只给一个 socket、一条出站连接和它自己的状态目录，其它哪儿都不能写。unit 跑的两条命令都用 `--config /etc/bifrost/bifrost.toml` 指名配置文件；`--check` 接在 `ExecStartPre` 上，所以配置有问题时失败的是 unit，而不是第一个请求——而且被检查的文件就是将被服务的那个文件。`deploy/bifrost.env.example` 是这个 unit 读的环境文件；它换不了配置文件，因为命令行上点名的路径优先于 `BIFROST_CONFIG`。安装步骤写在 unit 自己的头部注释里。
 
 ## 故障对照
 

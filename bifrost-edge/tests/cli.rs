@@ -197,6 +197,33 @@ fn printing_the_configuration_shows_the_layers_that_were_applied() {
     assert_eq!(config.api_base, "https://other.test");
 }
 
+/// The unit validates the file it is about to serve.
+///
+/// A `--check` that read a different file would be a check of nothing, and the
+/// difference would show up only as a service that started with a configuration
+/// nobody validated — which is what the unit passes the flag for.
+#[test]
+fn the_unit_checks_the_configuration_it_serves() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../deploy/bifrost.service");
+    let unit = std::fs::read_to_string(&path).expect("the unit is in the repository");
+    let argument = |prefix: &str| {
+        unit.lines()
+            .find_map(|line| line.strip_prefix(prefix))
+            .unwrap_or_else(|| panic!("the unit has no {prefix} line"))
+            .split_whitespace()
+            .filter(|word| *word != "--check")
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+
+    let checked = argument("ExecStartPre=");
+    let served = argument("ExecStart=");
+    assert_eq!(
+        checked, served,
+        "the check names the same file and command the service does"
+    );
+}
+
 /// A serving process reads the file `--config` names.
 ///
 /// The check is the one an operator would notice: the file is invalid, so a process
