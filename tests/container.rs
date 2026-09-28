@@ -283,12 +283,22 @@ fn the_overlay_mounts_the_configuration_its_command_names() {
         .unwrap_or_else(|| panic!("the overlay names a configuration: {command:?}"));
     let named = command.get(flag + 1).expect("--config takes a path");
 
-    let mounted = list(&overlay, "volumes")
+    let mount = list(&overlay, "volumes")
         .into_iter()
-        .any(|mount| mount.ends_with(&format!("{named}:ro")));
+        .find(|mount| mount.ends_with(&format!("{named}:ro")));
     assert!(
-        mounted,
+        mount.is_some(),
         "`--config {named}` reads a file this overlay has to mount there, read-only: {overlay}"
+    );
+    let mount = mount.expect("the mount the assert above found");
+
+    // Named by the operator rather than fixed here, because the file a container is served
+    // is not the file a host deployment reads: one binds 127.0.0.1 and forwards the
+    // caller's key, and the other does neither. The default stays the file in the
+    // checkout, which is the one a clone has.
+    assert!(
+        mount.contains("BIFROST_CONFIG_FILE:-./bifrost.toml"),
+        "the configuration is the operator's to name, defaulting to the checkout's: {mount}"
     );
 }
 

@@ -269,7 +269,27 @@ docker exec bifrost /usr/local/bin/bifrost \
 `docker-compose.access.yml` 是叠加文件而不是第二份部署：镜像、加固、端口、state 卷都还是
 基础文件那一套，它只加上要读的配置和要用的 key，两个都是 `:ro`。宿主侧路径从
 `BIFROST_KEY_FILE` 读 —— 那是 `.env` 里的一行（这个文件在 .gitignore 里），而不是每条命令
-都要打一遍的东西。
+都要打一遍的东西；配置文件的路径从 `BIFROST_CONFIG_FILE` 读，默认值是仓库里那份
+`bifrost.toml`。那个默认值是给刚 clone 下来的人用的，不是给这套用的：宿主部署读的那份绑的是
+`127.0.0.1`、而且是转发调用方 key 的，两条都占上的容器宿主就连不到。
+
+### 同一套，但在你这台机器上
+
+叠加文件里的进程是 uid 10001，正是它让“key 的副本”变成一条只有 root 能跑的 `chown`。
+`deploy/deploy-local.sh` 是同一套，只是告诉容器以调用者的 uid 跑，key 就从它本来就在的
+那个 home 目录挂进去。其他一概没放宽 —— 只读文件系统、不给 capability、端口只对宿主回环发布 ——
+而且没有任何副本需要你去安装：
+
+```sh
+deploy/deploy-local.sh                   # 启动，并等到它能回话
+deploy/deploy-local.sh --token laptop    # 给某个调用方发一个 token
+deploy/deploy-local.sh --logs            # 跟它的日志
+deploy/deploy-local.sh --down            # 停下来并删掉
+```
+
+它服务的是仓库里的 `bifrost.container.toml`（一样在 .gitignore 里），与宿主配置相比就多上面那段
+`[access]`，以及一个不是 `127.0.0.1` 的 `host`。它会先在一个容器里跑一遍二进制的 `--check`，然后才启动
+真正的容器，所以它读不到 key 时是那条命令在报，而不是第一次请求在报。
 
 跟转发调用方 key 的部署相比有两处不同。`/status` 要 token 才能看，因为每个已发 token 一行
 就意味着这页点了调用方的名字，这里唯一不是匿名的那页。另外带 `user_…` 来的调用方会被拒：

@@ -4,3 +4,4 @@
 *.log
 .env
 .ace-tool/
+/bifrost.container.toml

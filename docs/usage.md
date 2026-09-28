@@ -342,7 +342,31 @@ docker exec bifrost /usr/local/bin/bifrost \
 the hardening, the port and the state volume stay the base file's, and what it adds is
 the configuration to read and the key to serve with, both mounted `:ro`. It reads
 `BIFROST_KEY_FILE` for the host path — a line of `.env`, which is ignored here, rather
-than something to type on every command.
+than something to type on every command — and `BIFROST_CONFIG_FILE` for the configuration,
+which defaults to the `bifrost.toml` in the checkout. That default is a clone's, not this
+arrangement's: the file a host deployment reads binds `127.0.0.1` and forwards the
+caller's key, and a container served either of those is one the host cannot reach.
+
+### The same arrangement, on the machine you are on
+
+The overlay's process is uid 10001, and that is what makes the copy of the key a `chown`
+only root can run. `deploy/deploy-local.sh` is the same arrangement with the container
+told to run as the invoking user instead, and the key mounted from the home directory it
+is already in. Nothing else is loosened — read-only filesystem, no capabilities, and the
+port published to the host's loopback — and there is no copy of the key to install:
+
+```sh
+deploy/deploy-local.sh                   # start it, and wait until it answers
+deploy/deploy-local.sh --token laptop    # issue a caller a token
+deploy/deploy-local.sh --logs            # follow what it says
+deploy/deploy-local.sh --down            # stop and remove it
+```
+
+It serves `bifrost.container.toml`, in the checkout and ignored by git like the other
+one, whose difference from a host configuration is the `[access]` section above and a
+`host` that is not `127.0.0.1`. It runs the binary's `--check` in a container before it
+starts one, so a key it cannot read is what that command reports rather than what the
+first turn reports.
 
 Two things differ from a deployment that forwards its callers' keys. `/status` takes the
 token a turn takes, because a row per issued token names callers and that is the one page

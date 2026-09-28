@@ -9,6 +9,9 @@
 #   BIFROST_KEY_FILE=/srv/bifrost/auth.json docker compose \
 #     -f docker-compose.yml -f docker-compose.access.yml up -d
 #
+# `BIFROST_KEY_FILE` is required; `BIFROST_CONFIG_FILE` defaults to the `bifrost.toml`
+# in the checkout.
+#
 # What that configuration has to contain is the second half of the `[access]` section in
 # `docs/usage.md`, and one line of it is fixed by this file: `key_file` names
 # `/etc/bifrost/auth.json`, which is where the mount below puts the key. A path nothing
@@ -27,8 +30,13 @@ services:
     command: ["--config", "/etc/bifrost/bifrost.toml"]
     volumes:
       # The deployment's own configuration. No secret is in it -- `key_file` names a
-      # path rather than holding a key -- so this one is the file in the checkout.
-      - ./bifrost.toml:/etc/bifrost/bifrost.toml:ro
+      # path rather than holding a key -- so this one is a file in the checkout rather
+      # than one only root can install. Which file is the operator's, because the two
+      # arrangements want different ones: a configuration written for a host binds
+      # 127.0.0.1 and forwards the caller's key, and a container wants neither. The
+      # default is the one a clone has. `BIFROST_CONFIG_FILE` is a line of `.env`, like
+      # the key's, rather than something to type on every command.
+      - ${BIFROST_CONFIG_FILE:-./bifrost.toml}:/etc/bifrost/bifrost.toml:ro
       # The account key. The process inside runs as uid 10001, so the file you logged in
       # with, at mode 0600 under your own uid, is a file it cannot read; `docs/usage.md`
       # has the two commands that install a copy it can, and the reason a copy is what
