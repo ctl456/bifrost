@@ -276,6 +276,11 @@ async fn serve_turn(
         }
     };
     let mut request = decoded.value;
+    // Half a tool pair is refused by the upstream (`Tool result is missing for
+    // tool call …`, or a `tool` turn with no call), and a client replaying a
+    // trimmed history can send one. Dropping the unpaired half keeps the turn
+    // askable; see `prune_unpaired_tools` for the two refusals it prevents.
+    request.prune_unpaired_tools();
     detail.requested_model = apply_model_alias(edge.as_ref(), &mut request);
     // Recorded before admission, so a refused turn still says which model it was
     // refused for: that is the first thing an operator looks at when a deployment
@@ -478,6 +483,7 @@ async fn streaming(
         renderer,
         response,
         idle: edge.config().limits.idle_for(true),
+        max_line: edge.config().limits.max_stream_line_bytes(),
         heartbeat: protocol.heartbeat.then(|| std::time::Duration::from_secs(15)),
         stall: edge.config().limits.client_stall().map(|after| Stall {
             after,

@@ -1333,10 +1333,20 @@ async fn a_client_that_stops_reading_does_not_hold_the_upstream_open() {
 /// prevents on the socket side, reached through the decoder instead.
 #[tokio::test]
 async fn an_upstream_line_that_never_ends_is_not_buffered_forever() {
-    // Past the ceiling, and small enough to stay a fast test.
+    // Past the ceiling, and small enough to stay a fast test. The ceiling is
+    // lowered rather than the payload raised: the default leaves room for a
+    // multi-megabyte tool call, which is the point of it.
     let unterminated = format!("{{\"type\":\"text-delta\",\"text\":\"{}\"", "x".repeat(2 * 1024 * 1024));
     let (upstream, _) = upstream(move || (200, unterminated.clone(), "application/x-ndjson")).await;
-    let edge = edge(&upstream).await;
+    let config = Config {
+        api_base: upstream.clone(),
+        limits: LimitsConfig {
+            max_stream_line_mb: 1,
+            ..Default::default()
+        },
+        ..Config::default()
+    };
+    let edge = serve(config).await;
 
     let response = client()
         .post(format!("{edge}/v1/chat/completions"))
@@ -1362,6 +1372,96 @@ async fn an_upstream_line_that_never_ends_is_not_buffered_forever() {
             .expect("message")
             .contains("terminator"),
         "the reason has to name what the upstream did wrong: {body}"
+    );
+}
+
+/// A large tool call is one large line, and a line that ends is not a line that
+/// never will.
+///
+/// The `cc` wire puts an event on each line, and a `tool-call` carries the whole
+/// tool input — so writing a file is a single line as large as the file. The
+/// terminator ceiling exists to stop an upstream that sends no newline at all,
+/// not to refuse such an answer, and this pins that a multi-megabyte line under
+/// the ceiling is forwarded rather than failed.
+#[tokio::test]
+async fn a_large_tool_call_line_is_forwarded() {
+    let content = "x".repeat(2 * 1024 * 1024);
+    let event = format!(
+        "{{\"type\":\"tool-call\",\"toolCallId\":\"c1\",\"toolName\":\"write\",\"input\":\"{{\\\"path\\\":\\\"big.txt\\\",\\\"content\\\":\\\"{content}\\\"}}\"}}\n"
+    );
+    let (upstream, _) = upstream(move || (200, event.clone(), "application/x-ndjson")).await;
+    let config = Config {
+        api_base: upstream.clone(),
+        limits: LimitsConfig {
+            max_stream_line_mb: 4,
+            ..Default::default()
+        },
+        ..Config::default()
+    };
+    let edge = serve(config).await;
+
+    let response = client()
+        .post(format!("{edge}/v1/chat/completions"))
+        .header("authorization", "Bearer user_abc123")
+        .json(&json!({
+            "model": "m",
+            "stream": true,
+            "messages": [{ "role": "user", "content": "hi" }],
+        }))
+        .send()
+        .await
+        .expect("send");
+
+    assert_eq!(
+        response.status(),
+        200,
+        "the line ended, so the ceiling is not the upstream's problem"
+    );
+    let body = response.text().await.expect("text");
+    assert!(
+        body.contains("big.txt") || body.contains("\"write\""),
+        "the tool call survives the line ceiling: {}",
+        &body[..body.len().min(400)]
+    );
+}
+
+/// Half a tool pair never reaches the upstream, which refuses either half.
+///
+/// A client replaying a trimmed history can send a call whose result is gone, and
+/// the upstream answers `502 Tool result is missing for tool call …` for it. The
+/// repair runs before the forward, so what the upstream is asked never carries
+/// the unanswered call.
+#[tokio::test]
+async fn an_unanswered_tool_call_is_not_forwarded() {
+    let (upstream, received) = upstream(|| (200, DELTAS.to_owned(), "application/x-ndjson")).await;
+    let edge = edge(&upstream).await;
+
+    let response = client()
+        .post(format!("{edge}/v1/responses"))
+        .header("authorization", "Bearer user_abc123")
+        .json(&json!({
+            "model": "m",
+            "stream": false,
+            "input": [
+                { "role": "user", "content": "check the weather" },
+                {
+                    "type": "function_call",
+                    "call_id": "call_gone",
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Beijing\"}"
+                }
+            ],
+        }))
+        .send()
+        .await
+        .expect("send");
+
+    assert_eq!(response.status(), 200);
+    let received = received.lock().expect("record");
+    let messages = received.last(GENERATE).body["params"]["messages"].clone();
+    assert!(
+        !messages.to_string().contains("call_gone"),
+        "the unanswered call is dropped before the upstream is asked: {messages}"
     );
 }
 

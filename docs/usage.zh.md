@@ -335,6 +335,8 @@ docker compose pull && docker compose up -d --no-build   # 改完文件里的 ta
 | 症状 | 是什么 |
 |---|---|
 | `Missing API key` | `Authorization: Bearer` 或 `x-api-key` 里没有 `user_…` token |
+| `Upstream line exceeds … without a terminator` | 上游某条 NDJSON 行在等到换行前涨过了 `limits.max_stream_line_mb`。Command Code 会把整个 `tool-call` 放在一行里，所以写一个大文件确实会触发它 —— 把上限调大即可。如果上限已经很宽还反复出现，那就是上游根本没在讲 `cc/1.53.1` |
+| `Tool result is missing for tool call …` 或 `Messages with role 'tool' must be a response to a preceding message with 'tool_calls'` | 客户端给的历史里工具调用和结果只带了半对 —— 有调用没结果，或有结果没调用（会话恢复 / 历史被裁剪时会出现）。上游两种都拒；Bifrost 转发前会把不成对的那半丢掉，于是这一轮能被作答。发完整历史或开新会话可以彻底避免 |
 | `401 MODEL_NOT_IN_PLAN` | 模型真实存在但不在本账号套餐里；这是上游按客户端自己的错误形状回的错误。从 `/v1/models` 里挑一个，或者写条规则把这个名字指过去 |
 | 客户端卡住然后超时 | 推理模型在出第一个 token 之前一直在想。`/v1/messages` 正是为此发注释帧心跳；受不了心跳的客户端照样会超时 |
 | 预检被拒 | 它永远不会让一轮失败，所以任何响应里都看不到痕迹 —— 去日志里找那条 warning，并记住少了 `User-Agent` 会先吃 `403`，路径都不看 |

@@ -40,6 +40,13 @@ zdr = false
 # Request body ceiling in MB. Oversized requests get 413 and the connection is
 # drained so it stays reusable.
 max_body_mb = 100
+# Longest single upstream NDJSON line, in MB, that may be buffered while it waits
+# for its terminator. Every `cc` event is one line and a `tool-call` carries the
+# whole tool input on one line, so a large file write is a large line; the default
+# leaves room for a multi-megabyte one. This is a guard against an upstream that
+# sends no newline at all rather than a limit on an answer, so raise it if a
+# legitimate turn is being failed with "exceeds ... without a terminator".
+max_stream_line_mb = 64
 # Upstream read-idle timeout while streaming.
 stream_idle_ms = 30000
 # Upstream read-idle timeout for non-streaming requests.

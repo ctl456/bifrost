@@ -48,16 +48,6 @@ pub enum Opening {
 /// behalf of a client that is not reading it.
 const CHANNEL_CAPACITY: usize = 4;
 
-/// The longest a single line may grow before the upstream is judged to be
-/// speaking something other than this protocol.
-///
-/// Every frame is one line of JSON, so a line that has grown this far is a line
-/// that is not going to end. Without a ceiling the decoder's half-line buffer
-/// grows with the upstream instead — the same unbounded growth the bounded
-/// channel exists to prevent, reached through the decoder rather than the
-/// socket, and it is reached precisely when the client has stopped reading.
-const MAX_LINE_BYTES: usize = 1024 * 1024;
-
 /// One message from the reader.
 enum Pump {
     Chunk(Bytes),
@@ -124,6 +114,15 @@ pub struct Session {
     accumulator: OutputAccumulator,
     idle: Duration,
     heartbeat: Option<Duration>,
+    /// The longest a single upstream line may grow before the turn is failed.
+    ///
+    /// Every `cc` event is one line, and a `tool-call` carries the whole tool input
+    /// on one line, so a legitimate answer can be a multi-megabyte line. The
+    /// ceiling is not a limit on such an answer; it is what stops an upstream that
+    /// never sends a newline from growing the decoder's half-line buffer without
+    /// bound. Configured rather than fixed, because how large a legal line can be
+    /// is the deployment's to know.
+    max_line: usize,
     /// When the last byte went to the client, for the heartbeat's idle test.
     last_sent: Instant,
     /// When the last byte arrived from upstream, for the idle timeout.
@@ -143,6 +142,12 @@ pub struct StreamPlan {
     pub renderer: Box<dyn ChunkGenerator<Event = SseFrame> + Send>,
     pub response: reqwest::Response,
     pub idle: Duration,
+    /// The longest a single upstream line may grow before the turn is failed.
+    ///
+    /// Taken from `limits.max_stream_line_mb`: a `tool-call` event carries the
+    /// whole tool input on one line, so the ceiling has to leave room for a large
+    /// file write rather than assume every line is small.
+    pub max_line: usize,
     /// Send a comment frame when the stream has been quiet for a while.
     ///
     /// Only the Anthropic endpoint does this: its clients measure a first-byte
@@ -192,6 +197,7 @@ impl Session {
             renderer,
             response,
             idle,
+            max_line,
             heartbeat,
             stall,
             meter,
@@ -215,6 +221,7 @@ impl Session {
             renderer,
             accumulator: OutputAccumulator::new(),
             idle,
+            max_line,
             heartbeat,
             last_sent: now,
             last_read: now,
@@ -360,9 +367,10 @@ impl Session {
         for line in self.lines.push(chunk) {
             self.absorb_line(&line, &mut frames);
         }
-        if self.lines.pending_len() > MAX_LINE_BYTES {
+        if self.lines.pending_len() > self.max_line {
             return Step::Failed(Error::upstream(format!(
-                "Upstream line exceeds {MAX_LINE_BYTES} bytes without a terminator"
+                "Upstream line exceeds {} bytes without a terminator",
+                self.max_line
             )));
         }
         if frames.is_empty() {

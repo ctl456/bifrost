@@ -1,5 +1,7 @@
 //! The intermediate representation every adapter converts to and from.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::core::content::ContentBlock;
@@ -219,6 +221,51 @@ impl CanonicalRequest {
             echo: None,
         }
     }
+
+    /// Drop half of an unmatched tool pair before the request is forwarded.
+    ///
+    /// The `cc` upstream refuses half a pair: `Tool result is missing for tool
+    /// call …` when a call has no result, and `Messages with role 'tool' must be
+    /// a response to a preceding message with 'tool_calls'` when a result has no
+    /// call. A client replaying a history it trimmed — a resumed session, a tool
+    /// call that was interrupted — sends one of those halves, and neither means
+    /// anything alone: a call without a result has no outcome, and a result
+    /// without a call has no request. Dropping the unpaired half is what turns
+    /// that turn into one the upstream answers instead of one it refuses.
+    ///
+    /// Adjacency is deliberately not touched here: a well-formed client sends a
+    /// result directly after its call, and reordering history is not this layer's
+    /// to do.
+    pub fn prune_unpaired_tools(&mut self) {
+        let mut calls: HashSet<String> = HashSet::new();
+        let mut results: HashSet<String> = HashSet::new();
+        for message in &self.messages {
+            for block in &message.content {
+                match block {
+                    ContentBlock::ToolUse { id, .. } => {
+                        calls.insert(id.clone());
+                    }
+                    ContentBlock::ToolResult { tool_use_id, .. } => {
+                        results.insert(tool_use_id.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let paired: HashSet<String> = calls.intersection(&results).cloned().collect();
+
+        self.messages.retain_mut(|message| {
+            let had_content = !message.content.is_empty();
+            message.content.retain(|block| match block {
+                ContentBlock::ToolUse { id, .. } => paired.contains(id.as_str()),
+                ContentBlock::ToolResult { tool_use_id, .. } => paired.contains(tool_use_id.as_str()),
+                _ => true,
+            });
+            // Only a turn that was *reduced* to nothing goes with its dropped
+            // half; a turn that arrived empty is the client's own shape.
+            !(had_content && message.content.is_empty())
+        });
+    }
 }
 
 /// Why generation stopped.
@@ -316,6 +363,84 @@ pub struct CanonicalResponse {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn tool_use(id: &str) -> ContentBlock {
+        ContentBlock::ToolUse {
+            id: id.to_owned(),
+            name: "get_weather".to_owned(),
+            input: json!({}),
+        }
+    }
+
+    fn tool_result(id: &str) -> ContentBlock {
+        ContentBlock::ToolResult {
+            tool_use_id: id.to_owned(),
+            name: None,
+            content: "22C".to_owned(),
+            is_error: false,
+        }
+    }
+
+    #[test]
+    fn a_paired_tool_call_and_result_are_left_alone() {
+        let mut request = CanonicalRequest::new(vec![
+            CanonicalMessage::new(Role::Assistant, vec![tool_use("call_1")]),
+            CanonicalMessage::new(Role::Tool, vec![tool_result("call_1")]),
+        ]);
+        request.prune_unpaired_tools();
+        assert_eq!(request.messages.len(), 2, "a complete pair survives: {request:?}");
+    }
+
+    #[test]
+    fn a_dangling_call_is_dropped() {
+        let mut request = CanonicalRequest::new(vec![
+            CanonicalMessage::new(Role::Assistant, vec![ContentBlock::text("on it"), tool_use("gone")]),
+            CanonicalMessage::new(Role::User, vec![ContentBlock::text("and now?")]),
+        ]);
+        request.prune_unpaired_tools();
+        assert_eq!(
+            request.messages[0].content,
+            vec![ContentBlock::text("on it")],
+            "the text stays and the unanswered call does not"
+        );
+    }
+
+    #[test]
+    fn an_orphan_result_is_dropped() {
+        let mut request = CanonicalRequest::new(vec![
+            CanonicalMessage::new(Role::User, vec![ContentBlock::text("hi")]),
+            CanonicalMessage::new(Role::Tool, vec![tool_result("orphan")]),
+        ]);
+        request.prune_unpaired_tools();
+        assert_eq!(
+            request.messages.len(),
+            1,
+            "the tool turn had nothing but the orphan: {request:?}"
+        );
+        assert_eq!(request.messages[0].role, Role::User);
+    }
+
+    #[test]
+    fn an_answer_to_one_call_does_not_rescue_its_sibling() {
+        let mut request = CanonicalRequest::new(vec![
+            CanonicalMessage::new(Role::Assistant, vec![tool_use("call_1"), tool_use("call_2")]),
+            CanonicalMessage::new(Role::Tool, vec![tool_result("call_1")]),
+        ]);
+        request.prune_unpaired_tools();
+        assert_eq!(request.messages[0].content, vec![tool_use("call_1")]);
+        assert_eq!(request.messages[1].content, vec![tool_result("call_1")]);
+    }
+
+    #[test]
+    fn an_already_empty_turn_is_not_this_layers_business() {
+        let mut request = CanonicalRequest::new(vec![CanonicalMessage::new(Role::Assistant, Vec::new())]);
+        request.prune_unpaired_tools();
+        assert_eq!(
+            request.messages.len(),
+            1,
+            "an empty turn arrived that way and is left that way"
+        );
+    }
 
     #[test]
     fn effort_thresholds_match_the_proxy() {

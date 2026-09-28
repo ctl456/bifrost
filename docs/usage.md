@@ -418,6 +418,8 @@ docker compose pull && docker compose up -d --no-build   # after moving the tag 
 | Symptom | What it is |
 |---|---|
 | `Missing API key` | no `user_…` token in `Authorization: Bearer` or `x-api-key` |
+| `Upstream line exceeds … without a terminator` | one upstream NDJSON line grew past `limits.max_stream_line_mb` before any newline arrived. Command Code puts a whole `tool-call` on a single line, so writing a large file can legitimately do this — raise the ceiling. If it keeps happening with a generous ceiling, the upstream is not speaking `cc/1.53.1` at all |
+| `Tool result is missing for tool call …` or `Messages with role 'tool' must be a response to a preceding message with 'tool_calls'` | the client's history is half a tool pair — a call with no result, or a result with no call, which a resumed or trimmed session produces. The upstream refuses either; Bifrost drops the unpaired half before forwarding, so the turn is answered. Replaying the full history, or starting a fresh session, avoids it entirely |
 | `401 MODEL_NOT_IN_PLAN` | the model is real but not in this account's plan; the error comes from the upstream, in the client's own error shape. Pick one from `/v1/models`, or write a rule that points this name at one of them |
 | A client hangs, then times out | a reasoning model thinking before its first token. `/v1/messages` sends comment-frame heartbeats for exactly this; a client that cannot tolerate them will still time out |
 | A pre-flight is being refused | it never fails a turn, so it leaves no trace in any response — look at the log for the warning, and remember a missing `User-Agent` gets a `403` before the path is even read |

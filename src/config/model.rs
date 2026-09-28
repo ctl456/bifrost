@@ -147,6 +147,15 @@ pub struct LimitsConfig {
     /// Request body ceiling. Oversized requests get `413` and the connection is
     /// drained so it stays reusable.
     pub max_body_mb: u32,
+    /// Longest single upstream NDJSON line, in MB, that may be buffered while it
+    /// waits for its terminator.
+    ///
+    /// Every `cc` event is one line, and a `tool-call` carries the whole tool
+    /// input on a single line, so a large file write is a large line. The ceiling
+    /// is what stops an upstream that never sends a newline from growing this
+    /// process's memory without bound; it is not a limit on a legitimate answer,
+    /// which is why the default leaves room for a multi-megabyte tool call.
+    pub max_stream_line_mb: u32,
     /// Upstream read-idle timeout while streaming.
     pub stream_idle_ms: u64,
     /// Upstream read-idle timeout for non-streaming requests.
@@ -168,6 +177,7 @@ impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
             max_body_mb: 100,
+            max_stream_line_mb: 64,
             stream_idle_ms: 30_000,
             nonstream_idle_ms: 90_000,
             max_inflight: 0,
@@ -181,6 +191,12 @@ impl LimitsConfig {
     #[must_use]
     pub const fn max_body_bytes(&self) -> u64 {
         self.max_body_mb as u64 * 1024 * 1024
+    }
+
+    /// The longest a single upstream line may grow before the turn is failed.
+    #[must_use]
+    pub const fn max_stream_line_bytes(&self) -> usize {
+        self.max_stream_line_mb as usize * 1024 * 1024
     }
 
     #[must_use]

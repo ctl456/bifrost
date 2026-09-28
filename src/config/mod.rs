@@ -114,6 +114,11 @@ impl Config {
         if self.limits.max_body_mb == 0 {
             return Err(ConfigError::Invalid("limits.max_body_mb must be at least 1".to_owned()));
         }
+        if self.limits.max_stream_line_mb == 0 {
+            return Err(ConfigError::Invalid(
+                "limits.max_stream_line_mb must be at least 1".to_owned(),
+            ));
+        }
         if self.limits.stream_idle_ms == 0 {
             return Err(ConfigError::Invalid(
                 "limits.stream_idle_ms must be greater than 0".to_owned(),

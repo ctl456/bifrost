@@ -35,6 +35,7 @@ fn defaults_match_the_documented_values() {
     assert_eq!(config.wire.drift_registry, "https://registry.npmjs.org");
     assert!(!config.wire.zdr);
     assert_eq!(config.limits.max_body_mb, 100);
+    assert_eq!(config.limits.max_stream_line_mb, 64);
     assert_eq!(config.limits.stream_idle_ms, 30_000);
     assert_eq!(config.limits.nonstream_idle_ms, 90_000);
     assert_eq!(config.limits.max_inflight, 0);
@@ -184,6 +185,7 @@ fn zero_timeouts_are_rejected() {
     assert!(Config::from_toml_str("[limits]\nstream_idle_ms = 0\n").is_err());
     assert!(Config::from_toml_str("[limits]\nnonstream_idle_ms = 0\n").is_err());
     assert!(Config::from_toml_str("[limits]\nmax_body_mb = 0\n").is_err());
+    assert!(Config::from_toml_str("[limits]\nmax_stream_line_mb = 0\n").is_err());
     assert!(Config::from_toml_str("[limits]\nannounce_ms = 0\n").is_err());
     assert!(Config::from_toml_str("[models]\ntimeout_ms = 0\n").is_err());
     // Not a timeout: `0` here means every request refetches, which is a policy
@@ -336,6 +338,7 @@ fn the_checked_in_example_config_is_valid() {
 fn limits_expose_bytes_and_per_request_timeouts() {
     let config = Config::default();
     assert_eq!(config.limits.max_body_bytes(), 100 * 1024 * 1024);
+    assert_eq!(config.limits.max_stream_line_bytes(), 64 * 1024 * 1024);
     assert_eq!(config.limits.idle_for(true), config.limits.stream_idle());
     assert_eq!(config.limits.idle_for(false), config.limits.nonstream_idle());
 }
